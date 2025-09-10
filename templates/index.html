@@ -1,0 +1,308 @@
+{% block content %}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SENELEC - Détection d'Anomalies</title>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+    {% include "navbar.html" %}
+    
+    <!-- Contenu principal -->
+    <div class="full-width-container">
+        <header class="page-header">
+            <a href="/logout" class="header-logout">
+                <span></span>
+                <span>Déconnexion</span>
+            </a>
+            <div class="reset-form">
+                <form action="/reset-analyse" method="post">
+                    <button type="submit" class="download-btn small-reset-btn">Renitialiser</button>
+                </form>
+            </div>
+            
+            <h1>Analyse des données de rapports mensuels</h1>
+
+        </header>
+
+        <div class="container">
+            
+            <form id="uploadForm" action="/analyse" method="post" enctype="multipart/form-data">
+                <div class="file-inputs-container">
+                    <div class="file-input-group">
+                        <label for="file_current"> Rapport du mois actuel (Excel):</label>
+                        <input type="file" id="file_current" name="file_current" accept=".xlsx" required />
+                    </div>
+
+                    <div class="file-input-group">
+                        <label for="file_previous"> Rapport du mois précedent (Excel):</label>
+                        <input type="file" id="file_previous" name="file_previous" accept=".xlsx" required />
+                    </div>
+
+                    <div class="file-input-group">
+                        <label for="file_list"> Liste des clients facturés (Excel):</label>
+                        <input type="file" id="file_list" name="file_list" accept=".xlsx" required />
+                    </div>
+                </div>
+
+                <button type="submit" class="submit-btn">
+                    Lancer le traitement
+                </button>
+            </form>
+
+            <!--SPINNER -->
+            <div id="loading" style="display: none; text-align: center; margin-top: 30px;">
+                <div class="spinner"></div>
+                <p style="font-weight: bold;"> En cours de traitement...</p>
+            </div>
+
+            <script>
+                document.getElementById("uploadForm").addEventListener("submit", function () {
+                    document.getElementById("loading").style.display = "block";
+                });
+            </script>
+
+
+            {% if files_ready %}
+            <hr />
+            <h2>Résultats pour : {{ month }}</h2>
+
+        
+
+            <!-- Aperçu des données -->
+            <div class="report-section">
+                <h3>Aperçu des données: {{ month }}</h3>
+
+                <div class="tabs">
+                    <div class="tab-header">
+                        <button class="tab-link active" onclick="openTab(event, 'cleaned')">Données traitées</button>
+                        <button class="tab-link" onclick="openTab(event, 'analysis')">Rapport d'anomalies</button>
+                        <button class="tab-link" onclick="openTab(event, 'non_evolving')">Compteurs non consommants</button>
+                    </div>  
+
+                    <div id="cleaned" class="tab-content">
+                        <div class="controls">
+                            <label for="cleaned_limit">🔢 Nombre de lignes :</label>
+                            <select id="cleaned_limit" onchange="updateTable('cleaned')">
+                                <option value="10">10</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="500">500</option>
+                                <option value="1000">1000</option>
+                                <option value="5000">5000</option>
+                                <option value="-1">Tout</option>
+                            </select>
+                        </div>
+                        <div id="cleaned_table" class="table-container">{{ cleaned_preview | safe }}</div>
+                    </div>
+
+                    <div id="anomalies" class="tab-content">
+                        <div class="controls">
+                            <label for="anomalies_limit">🔢 Nombre de lignes :</label>
+                            <select id="anomalies_limit" onchange="updateTable('anomalies')">
+                                <option value="10">10</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="500">500</option>
+                                <option value="1000">1000</option>
+                                <option value="5000">5000</option>
+                                <option value="-1">Tout</option>
+                            </select>
+                        </div>
+                        <div id="anomalies_table" class="table-container">{{ anomalies_preview | safe }}</div>
+                    </div>
+
+                    <div id="non_evolving" class="tab-content">
+                        <div class="controls">
+                            <label for="non_evolving_limit">🔢 Nombre de lignes :</label>
+                            <select id="non_evolving_limit" onchange="updateTable('non_evolving')">
+                                <option value="10">10</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="500">500</option>
+                                <option value="1000">1000</option>
+                                <option value="5000">5000</option>
+                                <option value="-1">Tout</option>
+                            </select>
+                        </div>
+                        <div id="non_evolving_table" class="table-container">{{ non_evolving_preview | safe }}</div>
+                    </div>
+
+                    <div id="analysis" class="tab-content">
+                        <div class="controls">
+                            <label for="analysis_limit">🔢 Nombre de lignes :</label>
+                            <select id="analysis_limit" onchange="updateTable('analysis')">
+                                <option value="10">10</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="500">500</option>
+                                <option value="1000">1000</option>
+                                <option value="5000">5000</option>
+                                <option value="-1">Tout</option>
+                            </select>
+                        </div>
+                        <div id="analysis_table" class="table-container">{{ analysis_preview | safe }}</div>
+                    </div>   
+                </div>
+            </div>
+
+            <!-- Aperçu du rapport complet -->
+            <div class="report-section">
+                <h3>Aperçu du Rapport Complet: {{ month }}</h3>
+                <div class="controls">
+                    <label for="full_report_limit">🔢 Nombre de lignes :</label>
+                    <select id="full_report_limit" onchange="updateFullReportPreview()">
+                        <option value="10">10</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="500">500</option>
+                        <option value="1000">1000</option>
+                        <option value="5000">5000</option>
+                        <option value="-1">Tout</option>
+                    </select>
+                </div>
+
+                <div id="full_report_tabs" class="tabs"></div>
+            </div>
+
+            <!-- Téléchargements -->
+            <div class="report-section">
+                <h3>💾 Exporter les Résultats</h3>
+                <div class="downloads-grid">
+                    <a href="/download/cleaned" class="download-btn">
+                        <span class="icon"></span>
+                        <span class="text">Données traitées</span>
+                    </a>
+                    </a>
+                    <a href="/download/analysis" class="download-btn">
+                        <span class="icon"></span>
+                        <span class="text">Rapport d'anomalies</span>
+                    </a>
+                    <a href="/download/non_evolving" class="download-btn">
+                        <span class="icon"></span>
+                        <span class="text">Compteurs non consommants</span>
+                    </a>
+                    <a href="/download/detailed" class="download-btn">
+                        <span class="icon"></span>
+                        <span class="text">Rapport détaillé par anomalie</span>
+                    </a>
+                    {% if has_full_report %}
+                    <a href="/view-full-report" class="download-btn" target="_blank">
+                        <span class="icon"></span>
+                        <span class="text">Tout télécharger</span>
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        function openTab(evt, tabName) {
+            const tabContents = document.getElementsByClassName("tab-content");
+            for (let i = 0; i < tabContents.length; i++) {
+                tabContents[i].style.display = "none";
+            }
+
+            const tabLinks = document.getElementsByClassName("tab-link");
+            for (let i = 0; i < tabLinks.length; i++) {
+                tabLinks[i].className = tabLinks[i].className.replace(" active", "");
+            }
+
+            document.getElementById(tabName).style.display = "block";
+            evt.currentTarget.className += " active";
+        }
+
+        function updateTable(type) {
+            const limit = parseInt(document.getElementById(`${type}_limit`).value);
+            fetch(`/preview/${type}?limit=${limit}`)
+                .then((response) => response.json())
+                .then((data) => {
+                    document.getElementById(`${type}_table`).innerHTML = data.html || data.error;
+                });
+        }
+
+        function updateFullReportPreview() {
+            const limit = parseInt(document.getElementById("full_report_limit").value);
+            fetch(`/preview-full-report?limit=${limit}`)
+                .then((response) => response.json())
+                .then((data) => {
+                    if (data.error) {
+                        console.error("Erreur API:", data.error); // Ajouter un log pour déboguer
+                        document.getElementById("full_report_tabs").innerHTML = `<p>${data.error}</p>`;
+                        return;
+                    }
+
+                    let html = '<div class="tab-header">';
+                    const sheetNames = Object.keys(data);
+                    console.log("Noms des feuilles:", sheetNames); // Log pour vérifier les clés
+
+                    sheetNames.forEach((sheetName, index) => {
+                        const activeClass = index === 0 ? " active" : "";
+                        const displayName = sheetName === "Nombre_anomalies" ? "Nombre_anomalies" : sheetName;
+                        html += `<button class="tab-link${activeClass}" onclick="openTab(event, 'fr_${sheetName}')">${displayName}</button>`;
+                    });
+                    html += "</div>";
+
+                    sheetNames.forEach((sheetName, index) => {
+                        const displayStyle = index === 0 ? "block" : "none";
+                        html += `<div id="fr_${sheetName}" class="tab-content" style="display:${displayStyle}">
+                                    <div class="table-container">${data[sheetName]}</div>
+                                </div>`;
+                    });
+
+                    document.getElementById("full_report_tabs").innerHTML = html;
+                })
+                .catch((error) => {
+                    console.error("Erreur lors de la récupération du rapport complet:", error); // Log d'erreur
+                    document.getElementById("full_report_tabs").innerHTML = `<p>Erreur lors du chargement du rapport</p>`;
+                });
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            if (document.getElementById("full_report_tabs")) {
+                updateFullReportPreview();
+            }
+        });
+    </script>
+
+    <script>
+        // Fonction de bascule de la sidebar
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const toggleBtn = document.getElementById('toggle-btn');
+
+            sidebar.classList.toggle('collapsed');
+
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            toggleBtn.innerHTML = isCollapsed ? '❯' : '❮';
+
+            // Sauvegarde dans le localStorage
+            localStorage.setItem('sidebarState', isCollapsed ? 'collapsed' : 'expanded');
+        }
+
+        // Appliquer l'état au chargement de la page
+        window.addEventListener('DOMContentLoaded', () => {
+            const sidebar = document.getElementById('sidebar');
+            const toggleBtn = document.getElementById('toggle-btn');
+
+            const savedState = localStorage.getItem('sidebarState');
+            if (savedState === 'collapsed') {
+                sidebar.classList.add('collapsed');
+                toggleBtn.innerHTML = '❯';
+            } else {
+                sidebar.classList.remove('collapsed');
+                toggleBtn.innerHTML = '❮';
+            }
+        });
+    </script>
+
+    
+
+</body>
+</html>
+
+{% endblock %}

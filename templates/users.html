@@ -1,0 +1,154 @@
+{% block content %}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion des utilisateurs - SENELEC</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    {% include "navbar.html" %}
+    
+    <div class="full-width-container">
+        <header class="page-header">
+            <a href="/logout" class="header-logout">
+                <span></span>
+                <span>Déconnexion</span>
+            </a>
+            <h1>Gestion des utilisateurs</h1>
+        </header>
+
+        <div class="container">
+            
+            {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+            {% endif %}
+
+            <div class="user-info-box">
+                <span>Connecté en tant que <strong>{{ current_user.username }}</strong> ({{ current_user.role }})</span>
+            </div>
+
+            <!-- Bouton pour changer son propre mot de passe -->
+             {% if current_user.role == "simple" %}
+            <div class="change-password-section">
+                <h2>Changer mon mot de passe</h2>
+                <form method="post" action="/users/change-password" class="user-form">
+                    <div class="form-group">
+                        <label for="old_password">Ancien mot de passe</label>
+                        <input type="password" id="old_password" name="old_password" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="new_password">Nouveau mot de passe</label>
+                        <input type="password" id="new_password" name="new_password" required>
+                    </div>
+                    <button type="submit" class="submit-btn">Modifier</button>
+                </form>
+            </div>
+            {% endif %}
+            <!-- Section création utilisateur -->
+            {% if current_user.role in ["super_admin", "admin"] %}
+            <div class="create-user-section">
+                <h2>Créer un nouvel utilisateur</h2>
+                <form method="post" action="/users/create" class="user-form" autocomplete="off">
+                    <div class="form-group">
+                        <label for="username">Nom d'utilisateur</label>
+                        <input type="text" id="username" name="username" required autocomplete="off">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password">Mot de passe</label>
+                        <input type="password" id="password" name="password" required autocomplete="new-password">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="role">Rôle</label>
+                        <select id="role" name="role" required>
+                            {% if current_user.role == "super_admin" %}
+                            <option value="admin">Admin</option>
+                            {% endif %}
+                            <option value="simple">Utilisateur simple</option>
+                        </select>
+                    </div>
+                    
+                    <button type="submit" class="submit-btn">Créer</button>
+                </form>
+
+            </div>
+            {% endif %}
+            
+            <!-- Liste des utilisateurs -->
+            <div class="users-list-section">
+                <h2>Liste des utilisateurs</h2>
+                
+                {% if users %}
+                <div class="table-container">
+                    <table class="users-table">
+                        <thead>
+                            <tr>
+                                <th>Nom d'utilisateur</th>
+                                <th>Rôle</th>
+                                <th>Créé par</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user in users %}
+                            <tr>
+                                <td>{{ user.username }}</td>
+                                <td>
+                                    {% if user.role == "super_admin" %}
+                                    Super Admin
+                                    {% elif user.role == "admin" %}
+                                    Admin
+                                    {% else %}
+                                    Utilisateur simple
+                                    {% endif %}
+                                </td>
+                                <td>{{ user.created_by }}</td>
+                                <td>
+                                    {% if user.username != current_user.username %}
+                                    <div class="user-actions">
+                                        <form method="post" action="/users/delete/{{ user.username }}" onsubmit="return confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?');">
+                                            <button type="submit" class="delete-btn" 
+                                                {% if current_user.role == 'admin' and (user.role != 'simple' or user.created_by != current_user.username) %}disabled{% endif %}>
+                                                Supprimer
+                                            </button>
+                                        </form>
+                                        {% if current_user.role in ['super_admin', 'admin'] and (current_user.role == 'super_admin' or (user.role == 'simple' and user.created_by == current_user.username)) %}
+                                        <a href="/reset-password/{{ user.username }}" class="reset-btn">Réinitialiser MDP</a>
+                                        {% endif %}
+                                    </div>
+                                    {% else %}
+                                    <a href="/change-password" class="change-btn">Changer MDP</a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="no-users">Aucun utilisateur à afficher.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.classList.toggle('collapsed');
+            
+            const toggleBtn = document.getElementById('toggle-btn');
+            if (sidebar.classList.contains('collapsed')) {
+                toggleBtn.innerHTML = '❯';
+            } else {
+                toggleBtn.innerHTML = '❮';
+            }
+        }
+    </script>
+</body>
+
+
+{% endblock %}

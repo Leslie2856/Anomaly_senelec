@@ -1,0 +1,54 @@
+<nav class="main-nav" id="sidebar">
+    <div id="toggle-btn" onclick="toggleSidebar()">❮</div>
+
+    <div class="nav-header">
+        <div class="logo-container">
+            <img src="/static/logo-senelec.png" alt="Logo SENELEC" class="logo-img">
+        </div>
+    </div>
+      
+    <div class="nav-links">
+        
+        <a href="/accueil" class="nav-link {% if request.url.path == '/accueil' %}active{% endif %}">
+            <i data-lucide="home" class="nav-icon"></i>
+            <span class="nav-text">Accueil</span>
+        </a>
+        <a href="/analyse" class="nav-link {% if request.url.path == '/analyse' %}active{% endif %}">
+            <i data-lucide="bar-chart-3" class="nav-icon"></i>
+            <span class="nav-text">Analyse</span>
+        </a>
+        
+        <a href="/anomaly-detection" class="nav-link {% if request.url.path == '/anomaly-detection' %}active{% endif %}">
+            <i data-lucide="alert-triangle" class="nav-icon"></i>
+            <span class="nav-text">Détection IA</span>
+        </a>
+
+        <a href="/dashboard" class="nav-link {% if request.url.path == '/dashboard' %}active{% endif %}">
+            <i data-lucide="layout-dashboard" class="nav-icon"></i>
+            <span class="nav-text">Dashboard</span>
+        </a>
+        
+        {% if current_user and current_user.role in ["super_admin", "admin"] %}
+        <a href="/users" class="nav-link {% if request.url.path == '/users' %}active{% endif %}">
+            <i data-lucide="users" class="nav-icon"></i>
+            <span class="nav-text">Gestion utilisateurs</span>
+        </a>
+        {% endif %}
+    </div>
+    
+    {% if current_user %}
+    <div class="user-info-bottom">
+        <span class="nav-icon user-circle">
+            {{ current_user.username[0]|upper }}
+        </span>
+        <span class="nav-text">{{ current_user.username }} ({{ current_user.role }})</span>
+    </div>
+    {% endif %}
+</nav>
+
+<!-- Lucide CDN -->
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+  lucide.createIcons();
+</script>
+

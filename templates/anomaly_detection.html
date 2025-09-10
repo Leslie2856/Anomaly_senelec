@@ -1,0 +1,319 @@
+{% block content %}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SENELEC - Détection d'Anomalies avec Autoencodeur</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <!-- Ajout de Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    {% include "navbar.html" %}
+    
+    <!-- Contenu principal -->
+    <div class="full-width-container">
+        <header class="page-header">
+            <a href="/logout" class="header-logout">
+                <span></span>
+                <span>Déconnexion</span>
+            </a>
+             <div class="reset-form">
+                <form action="/reset-anomaly-detection" method="post">
+                    <button type="submit" class="download-btn small-reset-btn">Renitialiser</button>
+                </form>
+            </div>
+            
+            <h1>Détection d'anomalies avec l'intelligence artificielle</h1>
+        </header>
+
+        <div class="container">         
+            <form id="uploadForm" action="/anomaly-detection" method="post" enctype="multipart/form-data">
+                <div class="file-inputs-container">
+                    <div class="file-input-group">
+                        <label for="file_report">Courbes de charge (Excel ou CSV):</label>
+                        <input type="file" id="file_report" name="file_report" accept=".xlsx, .xls, .csv" required />
+                    </div>
+                    <div class="file-input-group">
+                        <label for="file_clients">Liste des clients facturés (Excel ou CSV):</label>
+                        <input type="file" id="file_clients" name="file_clients" accept=".xlsx, .xls, .csv" required />
+                    </div>
+                </div>
+                <button type="submit" class="submit-btn">Lancer la détection</button>
+            </form>
+
+            <!-- SPINNER -->
+            <div id="loading" style="display: none; text-align: center; margin-top: 30px;">
+                <div class="spinner"></div>
+                <p style="font-weight: bold;">En cours de traitement...</p>
+            </div>
+
+            <script>
+                document.getElementById("uploadForm").addEventListener("submit", function () {
+                    document.getElementById("loading").style.display = "block";
+                });
+            </script>
+
+            {% if files_ready %}
+            <hr />
+            <h2>Résultats pour : {{ month }}</h2>
+
+            <!-- Aperçu des données -->
+            <div class="report-section">
+                <h3>Aperçu des données: {{ month }}</h3>
+                <div class="tabs">
+                    <div class="tab-header">
+                        <button class="tab-link active" onclick="openTab(event, 'cleaned')">Données nettoyées</button>
+                        <button class="tab-link" onclick="openTab(event, 'anomalies')">Anomalies</button>
+                        <button class="tab-link" onclick="openTab(event, 'low_consumption')">Compteurs <5kW</button>
+                        <button class="tab-link" onclick="openTab(event, 'outliers')">Outliers</button>
+                    </div>
+
+                    <div id="cleaned" class="tab-content">
+                        <div class="controls">
+                            <label for="cleaned_limit">🔢 Nombre de lignes :</label>
+                            <select id="cleaned_limit" onchange="updateTable('cleaned')">
+                                <option value="10">10</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="500">500</option>
+                                <option value="1000">1000</option>
+                                <option value="5000">5000</option>
+                                <option value="-1">Tout</option>
+                            </select>
+                        </div>
+                        <div id="cleaned_table" class="table-container">{{ cleaned_preview | safe }}</div>
+                    </div>
+
+                    <div id="anomalies" class="tab-content" style="display: none;">
+                        <div class="controls">
+                            <label for="anomalies_limit">🔢 Nombre de lignes :</label>
+                            <select id="anomalies_limit" onchange="updateTable('anomalies')">
+                                <option value="10">10</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="500">500</option>
+                                <option value="1000">1000</option>
+                                <option value="5000">5000</option>
+                                <option value="66">Tout</option>
+                            </select>
+                        </div>
+                        <div id="anomalies_table" class="table-container">{{ anomalies_preview | safe }}</div>
+                    </div>
+
+                    <div id="low_consumption" class="tab-content" style="display: none;">
+                        <div class="controls">
+                            <label for="low_consumption_limit">🔢 Nombre de lignes :</label>
+                            <select id="low_consumption_limit" onchange="updateTable('low_consumption')">
+                                <option value="10">10</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="500">500</option>
+                                <option value="1000">1000</option>
+                                <option value="5000">5000</option>
+                                <option value="-1">Tout</option>
+                            </select>
+                        </div>
+                        <div id="low_consumption_table" class="table-container">{{ low_consumption_preview | safe }}</div>
+                    </div>
+
+                    <div id="outliers" class="tab-content" style="display: none;">
+                        <div class="controls">
+                            <label for="outliers_limit">🔢 Nombre de lignes :</label>
+                            <select id="outliers_limit" onchange="updateTable('outliers')">
+                                <option value="10">10</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="500">500</option>
+                                <option value="1000">1000</option>
+                                <option value="5000">5000</option>
+                                <option value="-1">Tout</option>
+                            </select>
+                        </div>
+                        <div id="outliers_table" class="table-container">{{ outliers_preview | safe }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Téléchargements -->
+            <div class="report-section">
+                <h3>💾 Exporter les Résultats</h3>
+                <div class="downloads-grid">
+                    <a href="/download-anomaly/cleaned" class="download-btn">
+                        <span class="icon"></span>
+                        <span class="text">Données nettoyées</span>
+                    </a>
+                    <a href="/download-anomaly/anomalies" class="download-btn">
+                        <span class="icon"></span>
+                        <span class="text">Anomalies</span>
+                    </a>
+                    <a href="/download-anomaly/low_consumption" class="download-btn">
+                        <span class="icon"></span>
+                        <span class="text">Compteurs <5kW</span>
+                    </a>
+                    <a href="/download-anomaly/outliers" class="download-btn">
+                        <span class="icon"></span>
+                        <span class="text">Outliers</span>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Visualisation des Résultats -->
+            <div class="report-section">
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        function openTab(evt, tabName) {
+            const tabContents = document.getElementsByClassName("tab-content");
+            for (let i = 0; i < tabContents.length; i++) {
+                tabContents[i].style.display = "none";
+            }
+
+            const tabLinks = document.getElementsByClassName("tab-link");
+            for (let i = 0; i < tabLinks.length; i++) {
+                tabLinks[i].className = tabLinks[i].className.replace(" active", "");
+            }
+
+            document.getElementById(tabName).style.display = "block";
+            evt.currentTarget.className += " active";
+        }
+
+        function updateTable(type) {
+            const limit = parseInt(document.getElementById(`${type}_limit`).value);
+            fetch(`/preview-anomaly/${type}?limit=${limit}`)
+                .then((response) => response.json())
+                .then((data) => {
+                    document.getElementById(`${type}_table`).innerHTML = data.html || data.error;
+                });
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            if (document.querySelector(".tab-content")) {
+                document.querySelector(".tab-content").style.display = "block";
+            }
+
+            // Charger et afficher les visualisations
+            if (document.getElementById("pieChart") && document.getElementById("outliersChart") && document.getElementById("curveCharts")) {
+                fetch('/anomaly-visualization-data')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.error) {
+                            console.error(data.error);
+                            return;
+                        }
+                        const counts = data.counts;
+                        new Chart(document.getElementById('pieChart'), {
+                            type: 'pie',
+                            data: {
+                                labels: ['Sans anomalie', 'Anomalies IA', 'Compteurs <5kW', 'Outliers'],
+                                datasets: [{
+                                    data: [counts.normal_meters, counts.anomaly_meters, counts.low_consumption_meters, counts.outlier_meters],
+                                    backgroundColor: ['#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3']
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                plugins: {
+                                    title: { display: true, text: 'Répartition des Compteurs' },
+                                    legend: { position: 'top' }
+                                }
+                            }
+                        });
+
+                        new Chart(document.getElementById('outliersChart'), {
+                            type: 'pie',
+                            data: {
+                                labels: ['Basse consommation', 'Haute consommation'],
+                                datasets: [{
+                                    data: [counts.low_outlier_count, counts.high_outlier_count],
+                                    backgroundColor: ['#1b9e77', '#d95f02']
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                plugins: {
+                                    title: { display: true, text: 'Répartition des Outliers' },
+                                    legend: { position: 'top' }
+                                }
+                            }
+                        });
+                    })
+                    .catch(error => console.error('Erreur lors du chargement des données de visualisation:', error));
+
+                fetch('/anomaly-consumption-curves')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.error) {
+                            console.error(data.error);
+                            return;
+                        }
+                        const curveChartsContainer = document.getElementById('curveCharts');
+                        const groups = ['faible', 'moyenne', 'forte'];
+                        groups.forEach(group => {
+                            if (data[group] && Object.keys(data[group]).length > 0) {
+                                const chartDiv = document.createElement('div');
+                                chartDiv.innerHTML = `<h5>Group ${group}</h5><canvas id="curveChart_${group}" width="600" height="300"></canvas>`;
+                                curveChartsContainer.appendChild(chartDiv);
+
+                                const datasets = Object.entries(data[group]).map(([meter, values]) => ({
+                                    label: `Meter ${meter}`,
+                                    data: values.values,
+                                    borderColor: `hsl(${Math.random() * 360}, 70%, 50%)`,
+                                    fill: false
+                                }));
+
+                                new Chart(document.getElementById(`curveChart_${group}`), {
+                                    type: 'line',
+                                    data: {
+                                        labels: data[group][Object.keys(data[group])[0]].dates,
+                                        datasets: datasets
+                                    },
+                                    options: {
+                                        responsive: true,
+                                        plugins: {
+                                            title: { display: true, text: `Courbes de charge - ${group} (${data.month})` },
+                                            legend: { position: 'top' }
+                                        },
+                                        scales: {
+                                            x: { title: { display: true, text: 'Date' } },
+                                            y: { title: { display: true, text: 'Consommation journalière (kW)' } }
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                    })
+                    .catch(error => console.error('Erreur lors du chargement des courbes:', error));
+            }
+        });
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const toggleBtn = document.getElementById('toggle-btn');
+
+            sidebar.classList.toggle('collapsed');
+            toggleBtn.innerHTML = sidebar.classList.contains('collapsed') ? '❯' : '❮';
+            localStorage.setItem('sidebarState', sidebar.classList.contains('collapsed') ? 'collapsed' : 'expanded');
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const sidebar = document.getElementById('sidebar');
+            const toggleBtn = document.getElementById('toggle-btn');
+            const savedState = localStorage.getItem('sidebarState');
+            if (savedState === 'collapsed') {
+                sidebar.classList.add('collapsed');
+                toggleBtn.innerHTML = '❯';
+            } else {
+                sidebar.classList.remove('collapsed');
+                toggleBtn.innerHTML = '❮';
+            }
+        });
+    </script>
+</body>
+</html>
+
+{% endblock %}

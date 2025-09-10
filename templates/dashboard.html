@@ -1,0 +1,556 @@
+{% block content %}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SENELEC - Dashboard Anomalies</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <!-- Utiliser une version spécifique de Chart.js pour éviter les problèmes de cache -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <style>
+        /* Ajouter des styles pour s'assurer que les canvas sont visibles */
+        .chart-card canvas {
+            max-height: 300px;
+            width: 100%;
+        }
+        .chart-card {
+            min-height: 350px; /* Éviter que les cartes soient trop petites */
+        }
+        .error-message {
+            color: red;
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        /* Styles pour les visualisations */
+        .visualizations {
+            margin-top: 30px;
+        }
+        .viz-row {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        .viz-item {
+            flex: 1;
+            min-width: 300px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .curve-charts-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .curve-chart {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        @media (max-width: 768px) {
+            .viz-row {
+                flex-direction: column;
+            }
+            .viz-item {
+                min-width: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    {% include "navbar.html" %}
+    
+    <div class="full-width-container">
+        <header class="page-header">
+            <a href="/logout" class="header-logout">
+                <span></span>
+                <span>Déconnexion</span>
+            </a>
+            <div class="reset-form">
+                <form action="/reset-dashboard" method="post">
+                    <button type="submit" class="download-btn small-reset-btn">Renitialiser</button>
+                </form>
+            </div>
+            
+            <h1>Tableau de Bord: visualisation des résultats</h1>
+        </header>
+
+        <div class="container">
+            {% if error %}
+                <p class="error-message">{{ error }}</p>
+            {% endif %}
+
+            {% if analyse_ready or detection_ready %}
+            <!-- Visualisation des Résultats de l'Analyse -->
+            {% if analyse_ready %}
+            <h2>Analyse des données de rapports mensuels</h2>
+            <div class="dashboard-grid">
+                <!-- 1. Barres: Nombre total par type d'anomalie -->
+                <div class="chart-card">
+                    <h3>Nombre total par type d'anomalie</h3>
+                    <canvas id="typesAnomaliesChart"></canvas>
+                </div>
+
+                <!-- 2. Barres: Clients normaux VS. Clients avec anomalies -->
+                <div class="chart-card">
+                    <h3>Clients normaux VS. Clients avec anomalies</h3>
+                    <canvas id="normauxVsAnomaliesChart"></canvas>
+                </div>
+
+                <!-- 3. Barres: Nombre total de clients par nombre d'anomalies -->
+                <div class="chart-card">
+                    <h3>Nombre total de clients par nombre d'anomalies</h3>
+                    <canvas id="anomaliesParNbChart"></canvas>
+                </div>
+
+                <!-- 4. Barres: Clients non consommants VS. Clients consommants -->
+                <div class="chart-card">
+                    <h3>Clients non consommants VS. Clients consommants</h3>
+                    <canvas id="nonConsommantsVsConsommantsChart"></canvas>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Visualisation des Résultats de Détection -->
+            {% if detection_ready %}
+            <h2>Détection d'anomalies avec l'intelligence artificielle</h2>
+            <div class="visualizations">
+                <!-- Diagramme en cercle : Répartition des Compteurs et Outliers sur la même ligne -->
+                <div class="viz-row">
+                    <div class="viz-item">
+                        <h4>Répartition des Compteurs</h4>
+                        <canvas id="pieChart" width="250" height="250"></canvas>
+                    </div>
+                    <div class="viz-item">
+                        <h4>Répartition des Outliers (Basse vs Haute Consommation)</h4>
+                        <canvas id="outliersChart" width="250" height="250"></canvas>
+                    </div>
+                </div>
+
+                <!-- Courbes des compteurs avec anomalies -->
+                <div class="viz-item">
+                    <h4>Courbes des Compteurs avec Anomalies</h4>
+                    <div id="curveCharts" class="curve-charts-container"></div>
+                </div>
+            </div>
+            {% endif %}
+            {% endif %}
+
+            <!-- Script pour générer les graphiques -->
+            <script>
+                // Vérifier si Chart.js est chargé
+                if (typeof Chart === 'undefined') {
+                    console.error("Chart.js n'est pas chargé correctement.");
+                    alert("Erreur : Chart.js n'est pas chargé. Vérifiez votre connexion ou le CDN.");
+                }
+
+                // Vérifier si les canvas existent
+                const canvases = [
+                    'typesAnomaliesChart', 'normauxVsAnomaliesChart',
+                    'anomaliesParNbChart', 'nonConsommantsVsConsommantsChart',
+                    'pieChart', 'outliersChart'
+                ];
+                canvases.forEach(id => {
+                    if (!document.getElementById(id)) {
+                        console.warn(`Canvas avec ID ${id} non trouvé (peut-être normal si la section correspondante n'est pas active).`);
+                    }
+                });
+
+                {% if analyse_ready %}
+                // Données passées depuis le serveur
+                const nbSansAnomalie = {{ nb_sans_anomalie | safe }};
+                const anomaliesParNb = {{ anomalies_par_nb | safe }};
+                const nbConsommants = {{ nb_consommants | safe }};
+                const nbNonConsommants = {{ nb_non_consommants | safe }};
+                const nombreAnomalies = {{ nombre_anomalies | safe }};
+
+                // Débogage : Afficher les données dans la console
+                console.log("nbSansAnomalie:", nbSansAnomalie);
+                console.log("anomaliesParNb:", anomaliesParNb);
+                console.log("nbConsommants:", nbConsommants);
+                console.log("nbNonConsommants:", nbNonConsommants);
+                console.log("nombreAnomalies:", nombreAnomalies);
+
+                // Calcul explicite du nombre de compteurs sans anomalie
+                const totalAvecAnomalies =
+                    (anomaliesParNb[1] || 0) +
+                    (anomaliesParNb[2] || 0) +
+                    (anomaliesParNb[3] || 0) +
+                    Object.keys(anomaliesParNb).reduce((sum, key) => {
+                        return sum + (parseInt(key) >= 4 ? anomaliesParNb[key] : 0);
+                    }, 0);
+
+                const NbSansAnomalie = nbConsommants - totalAvecAnomalies;
+
+                // 1. Barres: Nombre total par type d'anomalie
+                try {
+                    const ctx1 = document.getElementById('typesAnomaliesChart');
+                    if (ctx1 && nombreAnomalies && nombreAnomalies.length > 0) {
+                        new Chart(ctx1, {
+                            type: 'bar',
+                            data: {
+                                labels: nombreAnomalies.map(a => a["Type d'anomalie"]),
+                                datasets: [{
+                                    label: 'Total',
+                                    data: nombreAnomalies.map(a => a['Nombre']),
+                                    backgroundColor: '#BF4F8A'
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                plugins: {
+                                    legend: {
+                                        position: 'top',
+                                        align: 'end'
+                                    }
+                                }
+                            }
+                        });
+                    } else {
+                        console.error("Données pour typesAnomaliesChart manquantes ou invalides.");
+                        if (ctx1) {
+                            ctx1.outerHTML = '<p class="error-message">Données manquantes pour le graphique des types d\'anomalies.</p>';
+                        }
+                    }
+                } catch (e) {
+                    console.error("Erreur dans typesAnomaliesChart:", e);
+                    const ctx1 = document.getElementById('typesAnomaliesChart');
+                    if (ctx1) {
+                        ctx1.outerHTML = '<p class="error-message">Erreur dans le graphique des types d\'anomalies.</p>';
+                    }
+                }
+
+                // 2. Barres: Clients normaux VS. Clients avec anomalies
+                try {
+                    const ctx2 = document.getElementById('normauxVsAnomaliesChart');
+                    if (ctx2 && typeof NbSansAnomalie !== 'undefined' && anomaliesParNb && Object.keys(anomaliesParNb).length > 0) {
+                        const totalAvecAnomalies =
+                            (anomaliesParNb[1] || 0) +
+                            (anomaliesParNb[2] || 0) +
+                            (anomaliesParNb[3] || 0) +
+                            Object.keys(anomaliesParNb).reduce((sum, key) => {
+                                return sum + (parseInt(key) >= 4 ? anomaliesParNb[key] : 0);
+                            }, 0);
+
+                        new Chart(ctx2, {
+                            type: 'bar',
+                            data: {
+                                labels: ['Clients'],
+                                datasets: [
+                                    {
+                                        label: 'Clients normaux',
+                                        data: [NbSansAnomalie],
+                                        backgroundColor: '#BF4F8A'
+                                    },
+                                    {
+                                        label: 'Clients avec anomalies',
+                                        data: [totalAvecAnomalies],
+                                        backgroundColor: '#e63757'
+                                    }
+                                ]
+                            },
+                            options: {
+                                responsive: true,
+                                scales: {
+                                    x: {
+                                        stacked: false,
+                                        barPercentage: 0.50,
+                                        categoryPercentage: 0.50
+                                    },
+                                    y: {
+                                        beginAtZero: true
+                                    }
+                                },
+                                plugins: {
+                                    legend: {
+                                        position: 'top',
+                                        align: 'end'
+                                    }
+                                }
+                            }
+                        });
+                    } else {
+                        console.error("Données pour normauxVsAnomaliesChart manquantes ou invalides.");
+                        if (ctx2) {
+                            ctx2.outerHTML = '<p class="error-message">Données manquantes pour le graphique normaux vs. anomalies.</p>';
+                        }
+                    }
+                } catch (e) {
+                    console.error("Erreur dans normauxVsAnomaliesChart:", e);
+                    const ctx2 = document.getElementById('normauxVsAnomaliesChart');
+                    if (ctx2) {
+                        ctx2.outerHTML = '<p class="error-message">Erreur dans le graphique normaux vs. anomalies.</p>';
+                    }
+                }
+
+                // 3. Barres: Nombre total de clients par nombre d'anomalies
+                try {
+                    const ctx3 = document.getElementById('anomaliesParNbChart');
+                    if (ctx3 && nbSansAnomalie !== undefined && anomaliesParNb && Object.keys(anomaliesParNb).length > 0) {
+                        new Chart(ctx3, {
+                            type: 'bar',
+                            data: {
+                                labels: ['0 anomalie', '1 anomalie', '2 anomalies', '3 anomalies', '4+ anomalies'],
+                                datasets: [{
+                                    label: 'Nombre de clients',
+                                    data: [
+                                        NbSansAnomalie,
+                                        anomaliesParNb[1] || 0,
+                                        anomaliesParNb[2] || 0,
+                                        anomaliesParNb[3] || 0,
+                                        Object.keys(anomaliesParNb).reduce((sum, key) => sum + (parseInt(key) >= 4 ? anomaliesParNb[key] : 0), 0)
+                                    ],
+                                    backgroundColor: '#BF4F8A'
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                plugins: {
+                                    legend: {
+                                        position: 'top',
+                                        align: 'end'
+                                    }
+                                }
+                            }
+                        });
+                    } else {
+                        console.error("Données pour anomaliesParNbChart manquantes ou invalides.");
+                        if (ctx3) {
+                            ctx3.outerHTML = '<p class="error-message">Données manquantes pour le graphique des anomalies par nombre.</p>';
+                        }
+                    }
+                } catch (e) {
+                    console.error("Erreur dans anomaliesParNbChart:", e);
+                    const ctx3 = document.getElementById('anomaliesParNbChart');
+                    if (ctx3) {
+                        ctx3.outerHTML = '<p class="error-message">Erreur dans le graphique des anomalies par nombre.</p>';
+                    }
+                }
+
+                // 4. Barres: Clients non consommants VS. Clients consommants
+                try {
+                    const ctx4 = document.getElementById('nonConsommantsVsConsommantsChart');
+                    if (ctx4 && nbNonConsommants !== undefined && nbConsommants !== undefined) {
+                        new Chart(ctx4, {
+                            type: 'bar',
+                            data: {
+                                labels: ['Clients'],
+                                datasets: [
+                                    {
+                                        label: 'Clients non consommants',
+                                        data: [nbNonConsommants],
+                                        backgroundColor: '#e63757'
+                                    },
+                                    {
+                                        label: 'Clients consommants',
+                                        data: [nbConsommants],
+                                        backgroundColor: '#BF4F8A'
+                                    }
+                                ]
+                            },
+                            options: {
+                                responsive: true,
+                                scales: {
+                                    x: {
+                                        stacked: false,
+                                        barPercentage: 0.50,
+                                        categoryPercentage: 0.50
+                                    },
+                                    y: {
+                                        beginAtZero: true
+                                    }
+                                },
+                                plugins: {
+                                    legend: {
+                                        position: 'top',
+                                        align: 'end'
+                                    }
+                                }
+                            }
+                        });
+                    } else {
+                        console.error("Données pour nonConsommantsVsConsommantsChart manquantes ou invalides.");
+                        if (ctx4) {
+                            ctx4.outerHTML = '<p class="error-message">Données manquantes pour le graphique non-consommants vs. consommants.</p>';
+                        }
+                    }
+                } catch (e) {
+                    console.error("Erreur dans nonConsommantsVsConsommantsChart:", e);
+                    const ctx4 = document.getElementById('nonConsommantsVsConsommantsChart');
+                    if (ctx4) {
+                        ctx4.outerHTML = '<p class="error-message">Erreur dans le graphique non-consommants vs. consommants.</p>';
+                    }
+                }
+                {% endif %}
+
+                // Visualisation des Résultats de Détection
+                document.addEventListener("DOMContentLoaded", function() {
+                    if (document.getElementById("pieChart") && document.getElementById("outliersChart") && document.getElementById("curveCharts")) {
+                        fetch('/anomaly-visualization-data')
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.error) {
+                                    console.error(data.error);
+                                    return;
+                                }
+                                const counts = data.counts;
+                                new Chart(document.getElementById('pieChart'), {
+                                    type: 'pie',
+                                    data: {
+                                        labels: ['Sans anomalie', 'Anomalies IA', 'Compteurs <5kW', 'Outliers'],
+                                        datasets: [{
+                                            data: [counts.normal_meters, counts.anomaly_meters, counts.low_consumption_meters, counts.outlier_meters],
+                                            backgroundColor: ['#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3']
+                                        }]
+                                    },
+                                    options: {
+                                        responsive: true,
+                                        plugins: {
+                                            title: { display: true, text: 'Répartition des Compteurs' },
+                                            legend: { position: 'top' }
+                                        }
+                                    }
+                                });
+
+                                new Chart(document.getElementById('outliersChart'), {
+                                    type: 'pie',
+                                    data: {
+                                        labels: ['Basse consommation', 'Haute consommation'],
+                                        datasets: [{
+                                            data: [counts.low_outlier_count, counts.high_outlier_count],
+                                            backgroundColor: ['#1b9e77', '#d95f02']
+                                        }]
+                                    },
+                                    options: {
+                                        responsive: true,
+                                        plugins: {
+                                            title: { display: true, text: 'Répartition des Outliers' },
+                                            legend: { position: 'top' }
+                                        }
+                                    }
+                                });
+                            })
+                            .catch(error => console.error('Erreur lors du chargement des données de visualisation:', error));
+
+                        fetch('/anomaly-consumption-curves')
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.error) {
+                                    console.error(data.error);
+                                    return;
+                                }
+                                const curveChartsContainer = document.getElementById('curveCharts');
+                                curveChartsContainer.innerHTML = ''; // Vider le conteneur
+                                
+                                const groups = ['faible', 'moyenne', 'forte'];
+                                groups.forEach(group => {
+                                    if (data[group] && Object.keys(data[group]).length > 0) {
+                                        const chartDiv = document.createElement('div');
+                                        chartDiv.className = 'curve-chart';
+                                        chartDiv.innerHTML = `<h5>Groupe ${group}</h5><canvas id="curveChart_${group}" width="600" height="300"></canvas>`;
+                                        curveChartsContainer.appendChild(chartDiv);
+
+                                        // Préparer les données pour le graphique
+                                        const datasets = [];
+                                        const dates = data[group][Object.keys(data[group])[0]].dates;
+                                        
+                                        Object.entries(data[group]).forEach(([meter, meterData], index) => {
+                                            datasets.push({
+                                                label: `Compteur ${meter}`,
+                                                data: meterData.values,
+                                                borderColor: `hsl(${index * 120}, 70%, 50%)`,
+                                                backgroundColor: `hsla(${index * 120}, 70%, 50%, 0.1)`,
+                                                fill: false,
+                                                tension: 0.1
+                                            });
+                                        });
+
+                                        // Créer le graphique
+                                        new Chart(document.getElementById(`curveChart_${group}`), {
+                                            type: 'line',
+                                            data: {
+                                                labels: dates,
+                                                datasets: datasets
+                                            },
+                                            options: {
+                                                responsive: true,
+                                                plugins: {
+                                                    title: { 
+                                                        display: true, 
+                                                        text: `Courbes de consommation - Groupe ${group}` 
+                                                    },
+                                                    legend: { 
+                                                        position: 'top',
+                                                        labels: {
+                                                            boxWidth: 12,
+                                                            font: {
+                                                                size: 10
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                scales: {
+                                                    x: { 
+                                                        title: { 
+                                                            display: true, 
+                                                            text: 'Date' 
+                                                        } 
+                                                    },
+                                                    y: { 
+                                                        title: { 
+                                                            display: true, 
+                                                            text: 'Consommation journalière (kW)' 
+                                                        } 
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    }
+                                });
+                            })
+                            .catch(error => console.error('Erreur lors du chargement des courbes:', error));
+                    }
+                });
+            </script>
+            <script>
+                // Fonction de bascule de la sidebar
+                function toggleSidebar() {
+                    const sidebar = document.getElementById('sidebar');
+                    const toggleBtn = document.getElementById('toggle-btn');
+
+                    sidebar.classList.toggle('collapsed');
+
+                    const isCollapsed = sidebar.classList.contains('collapsed');
+                    toggleBtn.innerHTML = isCollapsed ? '❯' : '❮';
+
+                    // Sauvegarde dans le localStorage
+                    localStorage.setItem('sidebarState', isCollapsed ? 'collapsed' : 'expanded');
+                }
+
+                // Appliquer l'état au chargement de la page
+                window.addEventListener('DOMContentLoaded', () => {
+                    const sidebar = document.getElementById('sidebar');
+                    const toggleBtn = document.getElementById('toggle-btn');
+
+                    const savedState = localStorage.getItem('sidebarState');
+                    if (savedState === 'collapsed') {
+                        sidebar.classList.add('collapsed');
+                        toggleBtn.innerHTML = '❯';
+                    } else {
+                        sidebar.classList.remove('collapsed');
+                        toggleBtn.innerHTML = '❮';
+                    }
+                });
+            </script>
+        </div>
+    </div>
+</body>
+</html>
+
+{% endblock %}

@@ -1,0 +1,138 @@
+{% block content %}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SENELEC - Accueil</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    {% include "navbar.html" %}
+
+    <!-- Contenu principal -->
+    <div class="full-width-container">
+        <a href="/logout" class="header-logout">
+            <span></span>
+            <span>Déconnexion</span>
+        </a>
+        <header class="page-header">
+            <a href="/logout" class="header-logout">
+                <span></span>
+                <span>Déconnexion</span>
+            </a>
+            <h1>Bienvenue sur la plateforme de detection des anomalies des </h1>
+            <h1>  clients speciaux- SENELEC</h1>
+        </header>
+        <div class="container">
+            <div class="dashboard-grid">
+                <div class="dashboard-card">
+                    <div class="card-header">
+                        <div class="card-icon">
+                            <i data-lucide="bar-chart-3"></i>
+                        </div>
+                        <h2 class="card-title">Analyse des rapports mensuels</h2>
+                    </div>
+                    <div class="card-content">
+                        <p>Importez vos rapports mensuels pour analyser les données de consommation du mois. 
+                            Identifiez les anomalies, comme les compteurs bloqués, les inversions, les monos bloqués et les monos faibles, ainsi que les cas de surcompensation.
+                            Vous avez également la possibilité d'exporter les résultats de l'analyse.                        
+                        </p>
+                    </div>
+                    <div class="card-footer">
+                        <a href="/analyse" class="card-btn">Analyser</a>
+                    </div>
+                </div>
+
+                <div class="dashboard-card">
+                    <div class="card-header">
+                        <div class="card-icon">
+                            <i data-lucide="alert-triangle"></i>
+                        </div>
+                        <h2 class="card-title">Détection d’anomalies par IA</h2>
+                    </div>
+                    <div class="card-content">
+                        <p>Chargez les données de courbes de charge pour détecter les comportements anormaux à l’aide de l’intelligence artificielle. 
+                            Repérez les compteurs à faible consommation et ceux présentant des valeurs aberrantes</p>
+                    </div>
+                    <div class="card-footer">
+                        <a href="/anomaly-detection" class="card-btn">Détecter</a>
+                    </div>
+                </div>
+
+                <div class="dashboard-card">
+                    <div class="card-header">
+                        <div class="card-icon">
+                            <i data-lucide="layout-dashboard"></i>
+                        </div>
+                        <h2 class="card-title">Tableau de bord</h2>
+                    </div>
+                    <div class="card-content">
+                        <p>Explorez les résultats des analyses de vos rapports mensuels et des anomalies détectées par l’intelligence artificielle. 
+                            Visualisez les tendances de consommation et les comportements anormaux à travers des graphiques</p>
+                    </div>
+                    <div class="card-footer">
+                        <a href="/dashboard" class="card-btn">Visualiser</a>
+                    </div>
+                </div>
+
+                <div class="dashboard-card">
+                    <div class="card-header">
+                        <div class="card-icon">
+                            <i data-lucide="users"></i>
+                        </div>
+                        <h2 class="card-title">Gestion des utilisateurs</h2>
+                    </div>
+                    <div class="card-content">
+                        <p>Gérez les comptes utilisateurs, leurs rôles et permissions. 
+                            Ajoutez, modifiez ou supprimez des utilisateurs, et configurez leurs droits d'accès à la plateforme.</p>
+                    </div>
+                    <div class="card-footer">
+                        <a href="/user-management" class="card-btn">Gérer</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+    </script>
+
+    <script>
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const toggleBtn = document.getElementById('toggle-btn');
+            const mainContainer = document.querySelector('.full-width-container');
+
+            sidebar.classList.toggle('collapsed');
+            mainContainer.classList.toggle('collapsed');
+
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            toggleBtn.innerHTML = isCollapsed ? '❯' : '❮';
+
+            localStorage.setItem('sidebarState', isCollapsed ? 'collapsed' : 'expanded');
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const sidebar = document.getElementById('sidebar');
+            const toggleBtn = document.getElementById('toggle-btn');
+            const mainContainer = document.querySelector('.full-width-container');
+
+            const savedState = localStorage.getItem('sidebarState');
+            if (savedState === 'collapsed') {
+                sidebar.classList.add('collapsed');
+                mainContainer.classList.add('collapsed');
+                toggleBtn.innerHTML = '❯';
+            } else {
+                sidebar.classList.remove('collapsed');
+                mainContainer.classList.remove('collapsed');
+                toggleBtn.innerHTML = '❮';
+            }
+        });
+    </script>
+</body>
+</html>
+{% endblock %}

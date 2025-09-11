@@ -86,11 +86,10 @@ def list_visible_users(db: Session, current_user):
 
 def get_current_user(request: Request):
     user_data = request.session.get("user")
-    session_id = request.cookies.get("session_id")
-    print(f"Session user_data: {user_data}, session_id: {session_id}")  # Log pour débogage
     if not user_data:
         return None
-    return type("User", (), user_data)
+    return User(username=user_data["username"], role=user_data["role"])
+
 
 def change_password(db: Session, username: str, old_password: str, new_password: str):
     user = db.query(UserDB).filter(UserDB.username == username).first()

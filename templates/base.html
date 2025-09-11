@@ -8,6 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
+        /* CSS existant */
         :root {
             --primary: #800080;
             --primary-dark: #5a005a;
@@ -30,134 +31,20 @@
             --radius-lg: 14px;
             --transition: all 0.2s ease-in-out;
         }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.6;
-        }
-
-        .full-width-container {
-            margin-left: 250px;
-            padding: 20px 40px;
-            width: calc(100% - 250px);
-            min-height: 100vh;
-            box-sizing: border-box;
-            transition: margin-left 0.3s ease, width 0.3s ease;
-        }
-
-        .main-nav.collapsed ~ .full-width-container {
-            margin-left: 60px;
-            width: calc(100% - 60px);
-            transform: translateZ(0);
-        }
-
-        .page-header {
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            color: white;
-            padding: 2rem;
-            border-radius: var(--radius-md);
-            margin-bottom: 2rem;
-            box-shadow: var(--shadow);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .page-header::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            right: -50%;
-            width: 100%;
-            height: 200%;
-            background: rgba(255, 255, 255, 0.1);
-            transform: rotate(25deg);
-        }
-
-        .page-header h1 {
-            font-size: 2.2rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-            position: relative;
-            color: white;
-            text-align: center;
-            border-bottom: none;
-            padding: 0;
-            margin: 0 0 1px 0;
-        }
-
-        .header-logout {
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            padding: 0.5rem 0.5rem;
-            border-radius: 50px;
-            text-decoration: none;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            transition: var(--transition);
-            font-weight: 500;
-        }
-
-        .header-logout:hover {
-            background: rgba(255, 255, 255, 0.3);
-            transform: translateY(-2px);
-        }
-
-        @media (max-width: 768px) {
-            .page-header {
-                padding: 1.5rem;
-                text-align: center;
-            }
-
-            .page-header h1 {
-                font-size: 1.8rem;
-            }
-
-            .header-logout {
-                position: relative;
-                top: 0;
-                right: 0;
-                margin: 0.5rem auto;
-                display: inline-flex;
-                justify-content: center;
-            }
-
-            .full-width-container {
-                padding: 10px;
-                margin-left: 0;
-                width: 100%;
-            }
-
-            .main-nav.collapsed ~ .full-width-container {
-                margin-left: 0;
-                width: 100%;
-            }
-        }
+        * { box-sizing: border-box; margin:0; padding:0; }
+        body { font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); line-height:1.6; }
+        .full-width-container { margin-left: 250px; padding:20px 40px; width:calc(100% - 250px); min-height:100vh; box-sizing:border-box; transition: margin-left 0.3s ease, width 0.3s ease; }
+        .main-nav.collapsed ~ .full-width-container { margin-left:60px; width:calc(100% - 60px); transform:translateZ(0); }
+        .page-header { background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); color:white; padding:2rem; border-radius: var(--radius-md); margin-bottom:2rem; box-shadow:var(--shadow); position:relative; overflow:hidden; text-align:center; }
+        .header-logout { position:absolute; top:5px; right:5px; background: rgba(255,255,255,0.2); color:white; padding:0.5rem 0.5rem; border-radius:50px; text-decoration:none; display:flex; align-items:center; gap:0.5rem; transition:var(--transition); font-weight:500; }
+        .header-logout:hover { background: rgba(255,255,255,0.3); transform: translateY(-2px); }
+        @media (max-width:768px) { .full-width-container { margin-left:0; width:100%; padding:10px; } .header-logout { position:relative; top:0; right:0; margin:0.5rem auto; display:inline-flex; justify-content:center; } }
     </style>
 </head>
 <body>
     {% include "navbar.html" %}
+
     <div class="full-width-container">
-        {% if current_user.is_authenticated %}
-        <header class="page-header">
-            <a href="/logout" class="header-logout">
-                <span></span>
-                <span>Déconnexion</span>
-            </a>
-            <h1>{% block page_title %}{% endblock %}</h1>
-        </header>
-        {% else %}
         <header class="page-header">
             <a href="/login" class="header-logout">
                 <span></span>
@@ -165,30 +52,19 @@
             </a>
             <h1>{% block page_title %}{% endblock %}</h1>
         </header>
-        {% endif %}
+
         <div class="container">
-            {% if current_user.is_authenticated %}
-                {% block content %}{% endblock %}
-            {% else %}
-                <div style="text-align: center; padding: 50px;">
-                    <h2>Accès non autorisé</h2>
-                    <p>Vous devez être connecté pour accéder à cette page.</p>
-                    <a href="/login" style="display: inline-block; padding: 10px 20px; background-color: #800080; color: white; text-decoration: none; border-radius: 5px;">Se connecter</a>
-                </div>
-            {% endif %}
+            {% block content %}{% endblock %}
         </div>
     </div>
+
     <script>
         lucide.createIcons();
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
             const toggleBtn = document.getElementById('toggle-btn');
             sidebar.classList.toggle('collapsed');
-            if (sidebar.classList.contains('collapsed')) {
-                toggleBtn.innerHTML = '❯';
-            } else {
-                toggleBtn.innerHTML = '❮';
-            }
+            if(sidebar.classList.contains('collapsed')) { toggleBtn.innerHTML = '❯'; } else { toggleBtn.innerHTML = '❮'; }
         }
     </script>
 </body>

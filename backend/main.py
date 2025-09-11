@@ -128,15 +128,6 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/login", status_code=303)
 
-# Route principale /accueil
-@app.get("/accueil")
-def accueil():
-    return {"message": "Bienvenue sur la page d'accueil !"}
-
-# Redirection automatique de / vers /accueil
-@app.get("/")
-def root():
-    return RedirectResponse(url="/accueil")
 
 # ===========================
 # PAGE ACCUEIL

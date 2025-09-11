@@ -1,1 +1,1 @@
-echo "web: gunicorn -k uvicorn.workers.UvicornWorker -b 0.0.0.0:\$PORT --timeout 120 backend.main:app" > Procfile
+echo "web: gunicorn -k uvicorn.workers.UvicornWorker -b 0.0.0.0:\$PORT --timeout 300 --workers 1 backend.main:app" > Procfile

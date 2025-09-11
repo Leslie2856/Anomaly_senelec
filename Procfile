@@ -1,1 +1,1 @@
-web: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+echo "web: gunicorn -k uvicorn.workers.UvicornWorker -b 0.0.0.0:\$PORT --timeout 120 backend.main:app" > Procfile

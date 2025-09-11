@@ -132,6 +132,10 @@ async def logout(request: Request):
 # ===========================
 # PAGE ACCUEIL
 # ===========================
+# Redirection automatique de / vers /accueil
+@app.get("/")
+def root():
+    return RedirectResponse(url="/accueil")
 
 @app.get("/accueil", response_class=HTMLResponse)
 async def accueil(request: Request, current_user: User = Depends(require_auth)):

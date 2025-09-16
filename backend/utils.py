@@ -167,8 +167,8 @@ def interpolate_group(group):
 def detect_outliers_group(group):
     def detect_without_replace(sub):
         mean, std = sub['Active power (+) total(kW)'].mean(), sub['Active power (+) total(kW)'].std()
-        is_outlier_low = (mean - sub['Active power (+) total(kW)']) > 4.5 * std
-        is_outlier_high = (sub['Active power (+) total(kW)'] - mean) > 6.5 * std
+        is_outlier_low = (mean - sub['Active power (+) total(kW)']) > 6 * std
+        is_outlier_high = (sub['Active power (+) total(kW)'] - mean) > 4.5 * std
         sub['is_outlier'] = is_outlier_low | is_outlier_high
         sub['Motif'] = np.where(sub['is_outlier'], 
                                 np.where(sub['Active power (+) total(kW)'] < mean, 
@@ -187,11 +187,13 @@ def prepare_daily_data(df, scaler=None):
         'Saison': 'first',
         'Climat': 'first',
         'Categorie': 'first',
-        'is_holiday': 'first'
+        'is_holiday': 'first',
+        'Rue': 'first',           
+        'Partenaire': 'first'     
     }).reset_index()
     
     df_daily.columns = ['Meter No.', 'date', 'sum_kW', 'mean_kW', 'std_kW', 'max_kW', 'min_kW', 
-                        'hour_mean', 'day_of_week', 'month', 'Saison', 'Climat', 'Categorie', 'is_holiday']
+                        'hour_mean', 'day_of_week', 'month', 'Saison', 'Climat', 'Categorie', 'is_holiday','Rue', 'Partenaire']
     
     df_daily['date'] = pd.to_datetime(df_daily['date'])
     df_daily['std_kW'] = df_daily['std_kW'].fillna(0)
@@ -244,7 +246,7 @@ def create_sequences_keras_v2(df: pd.DataFrame, time_steps: int, feature_columns
     
     return np.array(sequences)
 
-def evaluate_autoencoder(model, X_sequences, df_meter, time_steps=24, threshold_multiplier=2.0):
+def evaluate_autoencoder(model, X_sequences, df_meter, time_steps=24, threshold_multiplier=1.05):
     """
     Évalue l'autoencodeur sur les séquences et retourne les erreurs de reconstruction et les labels.
     Version adaptée de l'approche Kaggle.
@@ -265,7 +267,8 @@ def evaluate_autoencoder(model, X_sequences, df_meter, time_steps=24, threshold_
         # Appliquer le seuil d'anomalie (approche Kaggle)
         mean_error = np.mean(mse_per_sequence)
         std_error = np.std(mse_per_sequence)
-        threshold = mean_error * threshold_multiplier
+        threshold = mean_error * threshold_multiplier 
+
         
         # Déterminer les anomalies
         is_anomaly_sequence = mse_per_sequence > threshold

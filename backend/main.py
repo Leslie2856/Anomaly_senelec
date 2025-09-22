@@ -30,56 +30,26 @@ import tensorflow as tf
 
 logger = logging.getLogger("uvicorn.error")
 
-
-# main.py
-from backend.auth import (
-    pwd_context,
-    hash_password,
-    verify_password,
-    UserDB,
-    change_password,
-    reset_password
-)
-
-
 # --- Modules personnalisés ---
-
 from backend.utils import (
-    categoriser_partenaire,
-    export_low_consumption,
-    interpolate_group,
-    detect_outliers_group,
-    prepare_daily_data,
-    evaluate_autoencoder,
-    remove_non_consuming_meters,
-    FEATURE_COLUMNS,
-    METER_NUMBERS,
     clean_and_preprocess,
     calculate_evolutions,
     detect_anomalies,
     generate_report,
     prepare_analysis_report,
     count_anomalies,
-    create_sequences_keras_v2,
-    load_and_clean,
-    format_month_french,
     mois_fr
 )
 
-# Configuration identique à Kaggle
-CONFIG = {
-    'time_steps': 24,
-    'hidden_dim': 50,
-    'batch_size': 64,
-    'lr': 0.001,
-    'patience': 25,
-    'feature_columns': FEATURE_COLUMNS
-}
+from backend.utils2 import process_anomaly_detection
 
 from backend.auth import (
-    authenticate_user, create_user, delete_user,require_auth,
-    list_visible_users, get_current_user,User
+    authenticate_user, create_user, delete_user, require_auth,
+    list_visible_users, get_current_user, User,
+    pwd_context, hash_password, verify_password, UserDB,
+    change_password, reset_password
 )
+
 from backend.database import get_db
 
 # --- Application ---
@@ -99,6 +69,7 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), na
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 # Charger le scaler global à l'initialisation de l'application
+MODEL_PATH = os.path.join(MODELS_DIR, "autoencoder_keras.h5")
 SCALER_PATH = os.path.join(MODELS_DIR, "scaler_global.pkl")
 scaler = joblib.load(SCALER_PATH)
 
@@ -128,11 +99,9 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/login", status_code=303)
 
-
 # ===========================
 # PAGE ACCUEIL
 # ===========================
-# Redirection automatique de / vers /accueil
 @app.get("/")
 def root():
     return RedirectResponse(url="/accueil")
@@ -222,6 +191,7 @@ async def reset_accueil(request: Request, current_user: User = Depends(require_a
     if session_id and session_id in session_store:
         session_store[session_id].pop("accueil", None)
     return RedirectResponse(url="/accueil", status_code=303)
+
 # ===========================
 # PAGE ANALYSE
 # ===========================
@@ -332,11 +302,11 @@ class NumpyEncoder(json.JSONEncoder):
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, current_user: User = Depends(require_auth)):
     session_id = request.cookies.get("session_id")
-    data = session_store.get(session_id)
+    data = session_store.get(session_id, {})
 
     context = {"request": request, "files_ready": False, "current_user": current_user}
 
-    # Vérification indépendante pour l'analyse
+    # Vérification pour l'analyse
     if data and "analyse" in data and results_cache:
         try:
             df_anomalies = results_cache.get("anomalies")
@@ -345,7 +315,6 @@ async def dashboard(request: Request, current_user: User = Depends(require_auth)
             detailed_report = results_cache.get("detailed")
 
             if df_anomalies is not None and df_cleaned is not None and df_non_evolving is not None and detailed_report is not None:
-                # Supprimer la ligne "Total" dans Nombre_anomalies
                 df_nombre_anomalies = detailed_report["Nombre_anomalies"]
                 if "Type d'anomalie" in df_nombre_anomalies.columns:
                     df_nombre_anomalies = df_nombre_anomalies[df_nombre_anomalies["Type d'anomalie"] != "Total"].copy()
@@ -372,25 +341,23 @@ async def dashboard(request: Request, current_user: User = Depends(require_auth)
 
                 nombre_anomalies = json.dumps(df_nombre_anomalies.to_dict("records"), cls=NumpyEncoder)
 
-            # Mettre à jour le contexte pour l'analyse
-            context.update({
-                "analyse_ready": True,
-                "month": data["analyse"]["month"],
-                "nb_sans_anomalie": nb_sans_anomalie if 'nb_sans_anomalie' in locals() else 0,
-                "nb_consommants": nb_consommants if 'nb_consommants' in locals() else 0,
-                "nb_non_consommants": nb_non_consommants if 'nb_non_consommants' in locals() else 0,
-                "cas_normaux": cas_normaux if 'cas_normaux' in locals() else 0,
-                "cas_avec_anomalies": cas_avec_anomalies if 'cas_avec_anomalies' in locals() else 0,
-                "anomalies_par_nb": anomalies_par_nb if 'anomalies_par_nb' in locals() else {},
-                "nombre_anomalies": nombre_anomalies if 'nombre_anomalies' in locals() else json.dumps([]),
-            })
-
+                context.update({
+                    "analyse_ready": True,
+                    "month": data["analyse"]["month"],
+                    "nb_sans_anomalie": nb_sans_anomalie,
+                    "nb_consommants": nb_consommants,
+                    "nb_non_consommants": nb_non_consommants,
+                    "cas_normaux": cas_normaux,
+                    "cas_avec_anomalies": cas_avec_anomalies,
+                    "anomalies_par_nb": anomalies_par_nb,
+                    "nombre_anomalies": nombre_anomalies,
+                })
         except Exception as e:
             context["error"] = f"Erreur lors du traitement des données d'analyse : {str(e)}"
-            print("Erreur dans dashboard (analyse):", str(e))
+            logger.error(str(e))
 
-    # Vérification indépendante pour la détection d'anomalies
-    if data and "anomaly_detection" in data and results_cache:
+    # Vérification pour la détection d'anomalies
+    if data and "anomaly_detection" in data:
         try:
             df_anomaly_cleaned = results_cache.get("anomaly_cleaned")
             df_anomaly_anomalies = results_cache.get("anomaly_anomalies")
@@ -398,29 +365,23 @@ async def dashboard(request: Request, current_user: User = Depends(require_auth)
             df_anomaly_outliers = results_cache.get("anomaly_outliers")
             anomaly_month = results_cache.get("anomaly_month", "")
 
-            if df_anomaly_cleaned is not None and df_anomaly_anomalies is not None and df_anomaly_low_consumption is not None and df_anomaly_outliers is not None:
-                cleaned_preview = df_anomaly_cleaned.head(10).to_html(classes="table", index=False)
-                anomalies_preview = df_anomaly_anomalies.head(10).to_html(classes="table", index=False)
-                low_consumption_preview = df_anomaly_low_consumption.head(10).to_html(classes="table", index=False)
-                outliers_preview = df_anomaly_outliers.head(10).to_html(classes="table", index=False)
-
-            # Mettre à jour le contexte pour la détection d'anomalies
-            context.update({
-                "detection_ready": True,
-                "month": anomaly_month,
-                "cleaned_preview": cleaned_preview if 'cleaned_preview' in locals() else "",
-                "anomalies_preview": anomalies_preview if 'anomalies_preview' in locals() else "",
-                "low_consumption_preview": low_consumption_preview if 'low_consumption_preview' in locals() else "",
-                "outliers_preview": outliers_preview if 'outliers_preview' in locals() else "",
-            })
-
+            if all(df is not None for df in [df_anomaly_cleaned, df_anomaly_anomalies, df_anomaly_low_consumption, df_anomaly_outliers]):
+                context.update({
+                    "detection_ready": True,
+                    "month": anomaly_month,
+                    "cleaned_preview": data["anomaly_detection"]["cleaned_preview"],
+                    "anomalies_preview": data["anomaly_detection"]["anomalies_preview"],
+                    "low_consumption_preview": data["anomaly_detection"]["low_consumption_preview"],
+                    "outliers_preview": data["anomaly_detection"]["outliers_preview"],
+                })
+            else:
+                context["error"] = "Données de détection d'anomalies incomplètes dans results_cache."
         except Exception as e:
             context["error"] = f"Erreur lors du traitement des données de détection : {str(e)}"
-            print("Erreur dans dashboard (détection):", str(e))
+            logger.error(str(e))
 
     return templates.TemplateResponse("dashboard.html", context)
 
-# --- New Routes for Anomaly Detection ---
 @app.get("/anomaly-detection", response_class=HTMLResponse)
 async def anomaly_detection_page(request: Request, current_user: User = Depends(require_auth)):
     session_id = request.cookies.get("session_id")
@@ -440,330 +401,124 @@ async def anomaly_detection_page(request: Request, current_user: User = Depends(
 
     return templates.TemplateResponse("anomaly_detection.html", context)
 
-from fastapi import HTTPException
-import pandas as pd
-import os
-import tempfile
-import time
-from openpyxl import load_workbook
-from typing import List
-import io
-
 @app.post("/anomaly-detection", response_class=HTMLResponse)
-async def process_anomaly_detection(
+async def process_anomaly_detection_files(
     request: Request,
+    current_user: User = Depends(require_auth),
     file_report: UploadFile = File(...),
     file_clients: UploadFile = File(...)
 ):
-    user = get_current_user(request)
     session_id = request.cookies.get("session_id") or str(uuid4())
 
-    # Vérification des types de fichiers
-    if not (file_report.filename.endswith(('.csv', '.xlsx', '.xls'))):
-        raise HTTPException(status_code=400, detail="Le fichier de rapport doit être au format CSV ou Excel")
-    if not (file_clients.filename.endswith(('.csv', '.xlsx', '.xls'))):
-        raise HTTPException(status_code=400, detail="Le fichier des clients doit être au format CSV ou Excel")
+    load_profile_content = await file_report.read()
+    clients_content = await file_clients.read()
 
-    # Lecture du fichier report (CSV ou Excel) par chunks
-    start = time.time()
-    logger.info(f"Début de la lecture du fichier report: {file_report.filename}")
-    
-    if file_report.filename.endswith('.csv'):
-        file_content = io.BytesIO(await file_report.read())
-        sample = pd.read_csv(file_content, nrows=1, sep=';', encoding='utf-8')
-        available_cols = [col.strip() for col in sample.columns]
-        expected_cols = ["METER_NO", "FREEZE_DATE", "P8040"]
-        missing_cols = [col for col in expected_cols if col.upper() not in [c.upper() for c in available_cols]]
-        if missing_cols:
-            raise HTTPException(status_code=400, detail=f"Les colonnes manquantes dans le fichier CSV : {', '.join(missing_cols)}")
-        file_content.seek(0)
-        chunks = pd.read_csv(
-            file_content,
-            usecols=[col for col in available_cols if col.upper() in [c.upper() for c in expected_cols]],
-            dtype={'METER_NO': str},
-            chunksize=10000,
-            sep=';',
-            encoding='utf-8',
-            on_bad_lines='skip'
-        )
-        df_chunks: List[pd.DataFrame] = []
-        for chunk in chunks:
-            if not chunk.empty:
-                chunk["METER_NO"] = chunk["METER_NO"].str.strip().str.lstrip("0")
-                df_chunks.append(chunk)
-        df_report = pd.concat(df_chunks, ignore_index=True) if df_chunks else pd.DataFrame()
-    else:
-        excel_data = await file_report.read()
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_excel:
-            tmp_excel.write(excel_data)
-            tmp_excel_path = tmp_excel.name
-        try:
-            wb = load_workbook(tmp_excel_path)
-            ws = wb.active
-            df_chunks = []
-            chunk_size = 10000
-            rows = list(ws.rows)
-            for i in range(0, len(rows), chunk_size):
-                chunk_data = []
-                for row in rows[i:i + chunk_size]:
-                    values = [cell.value for cell in row[:3]]
-                    if all(v is not None for v in values):
-                        chunk_data.append(values)
-                if chunk_data:
-                    chunk_df = pd.DataFrame(chunk_data, columns=["METER_NO", "FREEZE_DATE", "P8040"])
-                    chunk_df["METER_NO"] = chunk_df["METER_NO"].astype(str).str.strip().str.lstrip("0")
-                    df_chunks.append(chunk_df)
-            df_report = pd.concat(df_chunks, ignore_index=True) if df_chunks else pd.DataFrame()
-        finally:
-            os.unlink(tmp_excel_path)
-
-    logger.info(f"Temps de lecture du fichier report: {time.time() - start} secondes")
-
-    # Lecture du fichier clients (CSV ou Excel)
-    start = time.time()
-    logger.info(f"Début de la lecture du fichier clients: {file_clients.filename}")
-    file_clients_content = await file_clients.read()
-    
-    if file_clients.filename.endswith('.csv'):
-        chunks = pd.read_csv(
-            io.BytesIO(file_clients_content),
-            usecols=["Numero de serie (Numero compteur)", "Partenaire", "Rue"],
-            dtype={'Numero de serie (Numero compteur)': str},
-            chunksize=10000,
-            encoding='utf-8',
-            on_bad_lines='skip'
-        )
-        df_chunks_clients: List[pd.DataFrame] = []
-        for chunk in chunks:
-            if not chunk.empty:
-                chunk["Numero de serie (Numero compteur)"] = chunk["Numero de serie (Numero compteur)"].str.strip().str.lstrip("0")
-                df_chunks_clients.append(chunk)
-        df_clients = pd.concat(df_chunks_clients, ignore_index=True) if df_chunks_clients else pd.DataFrame()
-    else:
-        df_clients = pd.read_excel(
-            io.BytesIO(file_clients_content),
-            usecols=["Numero de serie (Numero compteur)", "Partenaire", "Rue"],
-            engine='openpyxl',
-            dtype={'Numero de serie (Numero compteur)': str}
-        )
-        df_clients["Numero de serie (Numero compteur)"] = df_clients["Numero de serie (Numero compteur)"].str.strip().str.lstrip("0")
-
-    logger.info(f"Temps de lecture du fichier clients: {time.time() - start} secondes")
-
-    # Vérification des DataFrames
-    if df_report.empty or df_clients.empty:
-        raise HTTPException(status_code=400, detail="Un des fichiers est vide ou mal formé")
-
-    # Prétraitement
-    df_clients = df_clients.rename(columns={'Numero de serie (Numero compteur)': 'METER_NO'})
-
-    # Fusion
-    df_list = []
-    if not df_report.empty:
-        for chunk in [df_report] if isinstance(df_report, pd.DataFrame) else df_chunks:
-            merged_chunk = chunk.merge(df_clients[['METER_NO', 'Partenaire', 'Rue']], on='METER_NO', how='inner')
-            merged_chunk['Categorie'] = merged_chunk['Partenaire'].fillna('').apply(categoriser_partenaire)
-            df_list.append(merged_chunk)
-    df = pd.concat(df_list, ignore_index=True)
-
-    df = df.rename(columns={
-        'METER_NO': 'Meter No.',
-        'FREEZE_DATE': 'Data Time',
-        'P8040': 'Active power (+) total(kW)'
-    })
-    
-    # Conversion explicite en numérique
-    df['Active power (+) total(kW)'] = pd.to_numeric(df['Active power (+) total(kW)'], errors='coerce')
-
-    # Gestion des formats de date
     try:
-        df['Data Time'] = pd.to_datetime(df['Data Time'], format='%d-%b-%y %I.%M.%S.%f %p', errors='coerce')
-    except ValueError:
-        df['Data Time'] = pd.to_datetime(df['Data Time'], errors='coerce')
+        results = process_anomaly_detection(load_profile_content, clients_content, MODELS_DIR)
+    except Exception as e:
+        logger.error(f"Erreur lors du traitement: {str(e)}")
+        return templates.TemplateResponse("anomaly_detection.html", {"request": request, "error": str(e), "current_user": current_user})
 
-    df = df.sort_values(by=["Meter No.", "Data Time"], ascending=[True, True]).reset_index(drop=True)
+    # Effacer les anciennes clés de results_cache pour anomaly_detection
+    keys_to_remove = [
+        "anomaly_cleaned", "anomaly_anomalies", 
+        "anomaly_low_consumption", "anomaly_outliers", 
+        "anomaly_month"
+    ]
+    for key in keys_to_remove:
+        results_cache.pop(key, None)
 
-    # Ingénierie des fonctionnalités
-    df['hour'] = df['Data Time'].dt.hour
-    df['day_of_week'] = df['Data Time'].dt.weekday
-    df['month'] = df['Data Time'].dt.month
-    df['Saison'] = df['month'].apply(lambda x: 'Sèche' if x in [11, 12, 1, 2, 3, 4, 5] else 'Pluvieuse')
-    df['Climat'] = df['month'].apply(lambda x: 'Chaud' if x in [2, 3, 4, 5] else 'Froid' if x in [12, 1] else 'Modérée')
-    df['year_month'] = df['Data Time'].dt.to_period('M')
+    # Mettre à jour results_cache avec les nouveaux résultats
+    df_cleaned = results["cleaned"]
+    df_anomalies = results["anomalies"]
+    df_low_consumption = results["low_consumption"]
+    df_outliers = results["outliers"]
+    month = results["month"]
 
-    df['Saison'] = df['Saison'].apply(lambda x: x if x in ['Sèche', 'Pluvieuse'] else 'Sèche')
-    df['Climat'] = df['Climat'].apply(lambda x: x if x in ['Chaud', 'Froid', 'Modérée'] else 'Modérée')
+    cleaned_preview = df_cleaned.head(10).to_html(classes="table", index=False)
+    anomalies_preview = df_anomalies.head(10).to_html(classes="table", index=False)
+    low_consumption_preview = df_low_consumption.head(10).to_html(classes="table", index=False)
+    outliers_preview = df_outliers.head(10).to_html(classes="table", index=False)
 
-    # Vérification des colonnes après prétraitement
-    logger.info(f"Colonnes dans df après prétraitement : {df.columns.tolist()}")
-
-    # Interpolation et détection
-    df = remove_non_consuming_meters(df, energy_col="Active power (+) total(kW)")
-    df_cleaned = df.groupby('Meter No.', group_keys=False).apply(interpolate_group)
-    logger.info(f"Colonnes dans df_cleaned après interpolate_group : {df_cleaned.columns.tolist()}")
-    
-    mois_courant = df['year_month'].iloc[0] if not df.empty else None
-    mois_courant_str = format_month_french(mois_courant) if mois_courant else ""
-
-    df_low_consumption = export_low_consumption(df_cleaned, mois_courant, do_export=True) if mois_courant else pd.DataFrame()
-    logger.info(f"Colonnes dans df_low_consumption : {df_low_consumption.columns.tolist()}")
-    
-    df_with_outliers = df_cleaned.groupby('Meter No.', group_keys=False).apply(detect_outliers_group)
-    df_outliers = df_with_outliers[df_with_outliers['is_outlier']].copy() if not df_with_outliers.empty else pd.DataFrame()
-
-    # Charger modèle et scaler global avant prepare_daily_data
-    model_path = os.path.join(MODELS_DIR, 'autoencoder_keras.h5')
-    scaler_path = os.path.join(MODELS_DIR, 'scaler_global.pkl')
-
-    if not os.path.exists(model_path) or not os.path.exists(scaler_path):
-        raise HTTPException(status_code=500, detail="Modèle ou scaler manquant")
-
-    model = load_model(model_path, custom_objects={'mse': MeanSquaredError()})
-    scaler = joblib.load(scaler_path)
-
-    # Préparer les données quotidiennes
-    df_daily = prepare_daily_data(df_cleaned) if not df_cleaned.empty else pd.DataFrame()
-    logger.info(f"Colonnes dans df_daily après prepare_daily_data : {df_daily.columns.tolist()}")
-
-    # Vérifier que toutes les colonnes de FEATURE_COLUMNS sont présentes
-    missing_cols = [col for col in FEATURE_COLUMNS if col not in df_daily.columns]
-    if missing_cols:
-        logger.error(f"Colonnes manquantes dans df_daily : {missing_cols}")
-        raise HTTPException(status_code=500, detail=f"Colonnes manquantes dans df_daily : {missing_cols}")
-
-    # Détection d'anomalies
-    # Détection d'anomalies
-    anomalies_list = []
-    if not df_daily.empty:
-        METER_NUMBERS = df_daily['Meter No.'].unique().tolist()
-        logger.info(f"Compteurs uniques dans df_daily : {len(METER_NUMBERS)}")
-
-        for meter in METER_NUMBERS:
-            df_meter = df_daily[df_daily['Meter No.'] == meter].copy()
-            if df_meter.empty or len(df_meter) < CONFIG['time_steps']:  # Minimum time_steps jours pour une séquence
-                logger.warning(f"Skipping meter {meter}: too few days ({len(df_meter)})")
-                continue
-
-            X_test = df_meter[FEATURE_COLUMNS].copy()
-            # Ajouter du bruit pour éviter std=0
-            for col in FEATURE_COLUMNS[:5]:
-                if X_test[col].std() == 0:
-                    X_test[col] += np.random.normal(0, 1e-6, size=X_test[col].shape)
-
-            # Normaliser les données
-            try:
-                X_test_scaled = scaler.transform(X_test)
-            except ValueError as e:
-                logger.error(f"Erreur lors de la normalisation pour le compteur {meter}: {str(e)}")
-                continue
-
-            # Créer séquences (approche Kaggle)
-            X_sequences = create_sequences_keras_v2(df_meter, CONFIG['time_steps'], FEATURE_COLUMNS)
-            if X_sequences.shape[0] == 0:
-                logger.warning(f"Pas de séquences créées pour le compteur {meter}")
-                continue
-
-            # Évaluer avec l'autoencodeur (approche Kaggle)
-            try:
-                test_error, labels = evaluate_autoencoder(model, X_sequences, df_meter, 
-                                                        time_steps=CONFIG['time_steps'], 
-                                                        threshold_multiplier=2.0)
-                logger.info(f"Compteur {meter}: test_error shape={test_error.shape}, df_meter shape={len(df_meter)}")
-            except Exception as e:
-                logger.error(f"Erreur lors de l'évaluation de l'autoencodeur pour le compteur {meter}: {str(e)}")
-                continue
-
-            if len(test_error) > 0:
-                df_meter_anomalies = df_meter.copy()
-                if len(test_error) == len(df_meter):
-                    df_meter_anomalies['reconstruction_error'] = test_error
-                    df_meter_anomalies['anomaly'] = labels
-                else:
-                    logger.warning(f"Longueur mismatch pour compteur {meter}: test_error({len(test_error)}) vs df_meter({len(df_meter)})")
-                    padding_length = len(df_meter) - len(test_error)
-                    if padding_length > 0:
-                        df_meter_anomalies['reconstruction_error'] = np.pad(test_error, (0, padding_length), mode='constant', constant_values=np.nan)
-                        df_meter_anomalies['anomaly'] = np.pad(labels, (0, padding_length), mode='constant', constant_values=0)
-                    else:
-                        df_meter_anomalies['reconstruction_error'] = test_error[:len(df_meter)]
-                        df_meter_anomalies['anomaly'] = labels[:len(df_meter)]
-                anomalies_list.append(df_meter_anomalies[df_meter_anomalies['anomaly'] == 1])
-            else:
-                logger.warning(f"Aucune erreur ou label valide pour le compteur {meter}")
-
-    logger.info("Début de la concaténation des anomalies")
-    start_concat = time.time()
-    df_anomalies = pd.concat(anomalies_list, ignore_index=True) if anomalies_list else pd.DataFrame()
-    logger.info(f"Temps de concaténation des anomalies: {time.time() - start_concat} secondes")
-    
-    if not df_anomalies.empty:
-        logger.info("Début du tri et de la fusion des anomalies")
-        start_sort = time.time()
-        df_anomalies = df_anomalies.merge(
-            df_anomalies.groupby('Meter No.')['mean_kW'].mean().rename('mean_kW_meter'),
-            on='Meter No.'
-        )
-        df_anomalies.sort_values(by=['mean_kW_meter', 'Meter No.', 'date'], ascending=[False, True, True], inplace=True)
-        df_anomalies.drop(columns='mean_kW_meter', inplace=True)
-        logger.info(f"Temps de tri et fusion des anomalies: {time.time() - start_sort} secondes")
-
-    # Générer les aperçus
-    logger.info("Début de la génération des aperçus HTML")
-    start_preview = time.time()
-    cleaned_preview = df_cleaned.head(10).to_html(classes="table", index=False) if not df_cleaned.empty else ""
-    anomalies_preview = df_anomalies.head(10).to_html(classes="table", index=False) if not df_anomalies.empty else ""
-    low_consumption_preview = df_low_consumption.head(10).to_html(classes="table", index=False) if not df_low_consumption.empty else ""
-    outliers_preview = df_outliers.head(10).to_html(classes="table", index=False) if not df_outliers.empty else ""
-    logger.info(f"Temps de génération des aperçus HTML: {time.time() - start_preview} secondes")
-
-    # Mettre à jour le cache
-    logger.info("Début de la mise à jour du cache")
     results_cache.update({
         "anomaly_cleaned": df_cleaned,
         "anomaly_anomalies": df_anomalies,
         "anomaly_low_consumption": df_low_consumption,
         "anomaly_outliers": df_outliers,
-        "anomaly_month": str(mois_courant) if mois_courant else ""
+        "anomaly_month": month
     })
 
-    # Stocker les résultats dans la session
-    logger.info("Début de la mise à jour de la session")
     session_store[session_id] = session_store.get(session_id, {})
     session_store[session_id]["anomaly_detection"] = {
-        "month": format_month_french(mois_courant) if mois_courant else "",
+        "month": month,
         "cleaned_preview": cleaned_preview,
         "anomalies_preview": anomalies_preview,
         "low_consumption_preview": low_consumption_preview,
         "outliers_preview": outliers_preview
     }
 
-    # Sauvegarder les résultats dans un fichier temporaire
-    logger.info("Début de l'écriture du fichier Excel")
-    start_excel = time.time()
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-        with pd.ExcelWriter(tmp.name, engine='xlsxwriter') as writer:
-            if not df_cleaned.empty:
-                df_cleaned.to_excel(writer, sheet_name="Données nettoyées", index=False)
-            if not df_anomalies.empty:
-                df_anomalies.to_excel(writer, sheet_name="Anomalies", index=False)
-            if not df_low_consumption.empty:
-                df_low_consumption.to_excel(writer, sheet_name="Compteurs <5kW", index=False)
-            if not df_outliers.empty:
-                df_outliers.to_excel(writer, sheet_name="Outliers", index=False)
-        results_cache["anomaly_full_report_path"] = tmp.name
-    logger.info(f"Temps d'écriture du fichier Excel: {time.time() - start_excel} secondes")
-
-    logger.info(f"Temps total de traitement: {time.time() - start} secondes")
-    response = RedirectResponse(url="/dashboard", status_code=303)
+    response = RedirectResponse(url="/anomaly-detection", status_code=303)
     response.set_cookie(key="session_id", value=session_id)
     return response
+
+@app.get("/download/anomaly_cleaned")
+async def download_anomaly_cleaned(current_user: User = Depends(require_auth)):
+    if "anomaly_cleaned" not in results_cache:
+        raise HTTPException(status_code=404, detail="Fichier non trouvé")
+    
+    return StreamingResponse(
+        df_to_excel_bytes(results_cache["anomaly_cleaned"]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=anomaly_cleaned_{results_cache['anomaly_month']}.xlsx"}
+    )
+
+@app.get("/download/anomaly_anomalies")
+async def download_anomaly_anomalies(current_user: User = Depends(require_auth)):
+    if "anomaly_anomalies" not in results_cache:
+        raise HTTPException(status_code=404, detail="Fichier non trouvé")
+    
+    return StreamingResponse(
+        df_to_excel_bytes(results_cache["anomaly_anomalies"]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=anomalies_{results_cache['anomaly_month']}.xlsx"}
+    )
+
+@app.get("/download/anomaly_low_consumption")
+async def download_anomaly_low_consumption(current_user: User = Depends(require_auth)):
+    if "anomaly_low_consumption" not in results_cache:
+        raise HTTPException(status_code=404, detail="Fichier non trouvé")
+    
+    return StreamingResponse(
+        df_to_excel_bytes(results_cache["anomaly_low_consumption"]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=compteurs_basse_consommation_{results_cache['anomaly_month']}.xlsx"}
+    )
+
+@app.get("/download/anomaly_outliers")
+async def download_anomaly_outliers(current_user: User = Depends(require_auth)):
+    if "anomaly_outliers" not in results_cache:
+        raise HTTPException(status_code=404, detail="Fichier non trouvé")
+    
+    return StreamingResponse(
+        df_to_excel_bytes(results_cache["anomaly_outliers"]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=outliers_{results_cache['anomaly_month']}.xlsx"}
+    )
 
 @app.post("/reset-anomaly-detection")
 async def reset_anomaly_detection(request: Request):
     session_id = request.cookies.get("session_id")
     if session_id and session_id in session_store:
         session_store[session_id].pop("anomaly_detection", None)
-    return RedirectResponse(url="/dashboard", status_code=303)  # Rediriger vers /dashboard
+    # Effacer les clés spécifiques à anomaly_detection dans results_cache
+    keys_to_remove = [
+        "anomaly_cleaned", "anomaly_anomalies", 
+        "anomaly_low_consumption", "anomaly_outliers", 
+        "anomaly_month"
+    ]
+    for key in keys_to_remove:
+        results_cache.pop(key, None)
+    return RedirectResponse(url="/anomaly-detection", status_code=303)
 
 @app.post("/reset-dashboard")
 async def reset_dashboard(request: Request):
@@ -771,6 +526,14 @@ async def reset_dashboard(request: Request):
     if session_id and session_id in session_store:
         session_store[session_id].pop("analyse", None)
         session_store[session_id].pop("anomaly_detection", None)
+    # Effacer toutes les clés dans results_cache
+    keys_to_remove = [
+        "cleaned", "non_evolving", "anomalies", "analysis", "detailed", "month",
+        "anomaly_cleaned", "anomaly_anomalies", "anomaly_low_consumption", 
+        "anomaly_outliers", "anomaly_month", "full_report_path"
+    ]
+    for key in keys_to_remove:
+        results_cache.pop(key, None)
     return RedirectResponse(url="/dashboard", status_code=303)
 
 @app.get("/preview-anomaly/{file_type}")
@@ -813,160 +576,6 @@ async def download_anomaly_file(filekey: str):
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
-# === FONCTIONS POUR LA VISUALISATION ===
-
-def prepare_visualization_data():
-    """Prépare les données pour la visualisation"""
-    if not all(key in results_cache for key in ["anomaly_cleaned", "anomaly_anomalies", 
-                                              "anomaly_low_consumption", "anomaly_outliers"]):
-        return None
-    
-    df_cleaned = results_cache["anomaly_cleaned"]
-    df_anomalies = results_cache["anomaly_anomalies"]
-    df_low_consumption = results_cache["anomaly_low_consumption"]
-    df_outliers = results_cache["anomaly_outliers"]
-    
-    # Compter les différents types de compteurs
-    total_meters = df_cleaned['Meter No.'].nunique()
-    anomaly_meters = df_anomalies['Meter No.'].nunique() if not df_anomalies.empty else 0
-    low_consumption_meters = df_low_consumption['Meter No.'].nunique() if not df_low_consumption.empty else 0
-    outlier_meters = df_outliers['Meter No.'].nunique() if not df_outliers.empty else 0
-    
-    # Calculer les compteurs sans anomalies
-    normal_meters = total_meters - (anomaly_meters + low_consumption_meters + outlier_meters)
-    
-    # Séparer les outliers en haute et basse consommation
-    if not df_outliers.empty:
-        # Calculer la consommation moyenne par compteur
-        avg_consumption = df_cleaned.groupby('Meter No.')['Active power (+) total(kW)'].mean()
-        
-        # Identifier les outliers haute et basse consommation
-        high_outliers = []
-        low_outliers = []
-        
-        for meter in df_outliers['Meter No.'].unique():
-            meter_avg = avg_consumption.get(meter, 0)
-            # Si la consommation moyenne est supérieure à la médiane, c'est un haut outlier
-            if meter_avg > avg_consumption.median():
-                high_outliers.append(meter)
-            else:
-                low_outliers.append(meter)
-        
-        high_outlier_count = len(high_outliers)
-        low_outlier_count = len(low_outliers)
-    else:
-        high_outlier_count = 0
-        low_outlier_count = 0
-    
-    # Préparer les données pour les graphiques
-    visualization_data = {
-        "counts": {
-            "total_meters": total_meters,
-            "normal_meters": normal_meters,
-            "anomaly_meters": anomaly_meters,
-            "low_consumption_meters": low_consumption_meters,
-            "outlier_meters": outlier_meters,
-            "high_outlier_count": high_outlier_count,
-            "low_outlier_count": low_outlier_count
-        },
-        "month": results_cache.get("anomaly_month", "")
-    }
-    
-    return visualization_data
-
-def get_consumption_curves(meter_numbers, month_period):
-    """Récupère les courbes de consommation pour les compteurs spécifiés"""
-    if "anomaly_cleaned" not in results_cache:
-        return None
-    
-    df_cleaned = results_cache["anomaly_cleaned"]
-    
-    # Filtrer pour le mois spécifié
-    df_month = df_cleaned[df_cleaned['year_month'] == month_period]
-    
-    # Filtrer pour les compteurs spécifiés
-    meter_numbers_str = [str(m) for m in meter_numbers]
-    df_filtered = df_month[df_month['Meter No.'].isin(meter_numbers_str)]
-    
-    if df_filtered.empty:
-        return None
-    
-    # Agrégation quotidienne
-    df_daily = df_filtered.groupby(['Meter No.', df_filtered['Data Time'].dt.date]).agg({
-        'Active power (+) total(kW)': 'sum'
-    }).reset_index()
-    df_daily.columns = ['Meter No.', 'date', 'sum_kW']
-    df_daily['date'] = pd.to_datetime(df_daily['date'])
-    
-    # Calcul consommation moyenne par compteur
-    df_mean = df_daily.groupby('Meter No.')['sum_kW'].mean().reset_index()
-    df_mean.columns = ['Meter No.', 'mean_consumption']
-    
-    # Classification en 3 groupes (faible, moyenne, forte)
-    try:
-        df_mean['group'] = pd.qcut(
-            df_mean['mean_consumption'], q=3, labels=['faible', 'moyenne', 'forte']
-        )
-    except:
-        # Si pas assez de données pour 3 quantiles, utiliser des seuils fixes
-        thresholds = [0, df_mean['mean_consumption'].quantile(0.33), 
-                     df_mean['mean_consumption'].quantile(0.66), df_mean['mean_consumption'].max()]
-        if thresholds[1] == thresholds[2]:  # Cas où les quantiles sont identiques
-            df_mean['group'] = 'moyenne'
-        else:
-            df_mean['group'] = pd.cut(
-                df_mean['mean_consumption'], 
-                bins=thresholds, 
-                labels=['faible', 'moyenne', 'forte'],
-                include_lowest=True
-            )
-    
-    df_daily = df_daily.merge(df_mean[['Meter No.', 'group']], on='Meter No.')
-    
-    # Préparer les données pour le frontend
-    curves_data = {}
-    for group in ['faible', 'moyenne', 'forte']:
-        group_meters = df_daily[df_daily['group'] == group]['Meter No.'].unique()
-        group_data = {}
-        
-        for meter in group_meters:
-            df_meter = df_daily[df_daily['Meter No.'] == meter].sort_values('date')
-            group_data[str(meter)] = {
-                'dates': df_meter['date'].dt.strftime('%Y-%m-%d').tolist(),
-                'values': df_meter['sum_kW'].tolist()
-            }
-        
-        curves_data[group] = group_data
-    
-    return curves_data
-
-# === NOUVELLES ROUTES ===
-
-@app.get("/anomaly-visualization-data")
-async def get_anomaly_visualization_data():
-    """Endpoint pour récupérer les données de visualisation"""
-    viz_data = prepare_visualization_data()
-    if not viz_data:
-        return {"error": "Aucune donnée disponible pour la visualisation"}
-    
-    return viz_data
-
-@app.get("/anomaly-consumption-curves")
-async def get_anomaly_consumption_curves():
-    """Endpoint pour récupérer les courbes de consommation des compteurs avec anomalies"""
-    if "anomaly_anomalies" not in results_cache or results_cache["anomaly_anomalies"].empty:
-        return {"error": "Aucune anomalie détectée"}
-    
-    # Récupérer les compteurs avec anomalies
-    anomaly_meters = results_cache["anomaly_anomalies"]['Meter No.'].unique().tolist()
-    month_period = results_cache.get("anomaly_month", "")
-    
-    curves_data = get_consumption_curves(anomaly_meters, month_period)
-    if not curves_data:
-        return {"error": "Impossible de générer les courbes de consommation"}
-    
-    return curves_data
-
 # GESTION UTILISATEURS
 # ===========================
 
@@ -985,7 +594,7 @@ async def users_page(
 
 @app.post("/users/create")
 def create_new_user(
-    request: Request,  # <-- Correction : pas de Depends()
+    request: Request,
     username: str = Form(...),
     password: str = Form(...),
     role: str = Form(...),
@@ -994,7 +603,6 @@ def create_new_user(
 ):
     create_user(db, username, password, role, current_user.username)
     return RedirectResponse(url="/users", status_code=303)
-
 
 @app.post("/users/delete/{username}")
 async def delete_user_route(
@@ -1029,7 +637,6 @@ async def delete_user_route(
             status_code=403
         )
 
-
 @app.get("/change-password", response_class=HTMLResponse)
 async def change_password_page(request: Request, current_user: User = Depends(get_current_user)):
     if not current_user:
@@ -1060,7 +667,7 @@ async def change_password_route(
             "current_user": current_user,
             "error": str(e)
         }, status_code=400)
-    
+
 @app.post("/users/change-password")
 async def change_password(
     request: Request,
@@ -1099,7 +706,6 @@ async def change_password(
             "message": "Mot de passe modifié avec succès"
         }
     )
-
 
 @app.get("/reset-password/{username}", response_class=HTMLResponse)
 async def reset_password_page(
@@ -1144,7 +750,6 @@ async def reset_password_route(
             "error": str(e)
         }, status_code=400)
 
-    
 # ===========================
 # PREVIEW ET EXPORT
 # ===========================
@@ -1230,3 +835,180 @@ def cleanup():
             os.unlink(results_cache["full_report_path"])
         except:
             pass
+
+def read_csv_with_dtype(file_content, sep=';', encoding='utf-8-sig'):
+    """
+    Lit un fichier CSV avec des types de colonnes spécifiques pour éviter les warnings
+    """
+    dtype_spec = {
+        'meter_no': str,
+        'freeze_date': str,
+        'p8040': str,  # On convertira en numérique plus tard
+        'numero_compteur': str,
+        'partenaire': str,
+        'rue': str,
+        'client': str,
+        'nom_client': str
+    }
+    
+    return pd.read_csv(
+        io.BytesIO(file_content), 
+        sep=sep, 
+        encoding=encoding, 
+        low_memory=False,
+        dtype=dtype_spec
+    )
+
+def prepare_visualization_data():
+    """Prépare les données pour la visualisation"""
+    required_keys = ["anomaly_cleaned", "anomaly_anomalies", "anomaly_low_consumption", "anomaly_outliers"]
+    if not all(key in results_cache for key in required_keys):
+        logger.error("Données manquantes dans results_cache: %s", required_keys)
+        return {"error": "Données manquantes dans results_cache pour la visualisation"}
+
+    df_cleaned = results_cache["anomaly_cleaned"]
+    df_anomalies = results_cache["anomaly_anomalies"]
+    df_low_consumption = results_cache["anomaly_low_consumption"]
+    df_outliers = results_cache["anomaly_outliers"]
+
+    total_meters = df_cleaned['Meter No.'].nunique() if not df_cleaned.empty else 0
+    anomaly_meters = df_anomalies['Meter No.'].nunique() if not df_anomalies.empty else 0
+    low_consumption_meters = df_low_consumption['Meter No.'].nunique() if not df_low_consumption.empty else 0
+    outlier_meters = df_outliers['Meter No.'].nunique() if not df_outliers.empty else 0
+
+    # Débogage : Afficher le nombre d'outliers
+    logger.info(f"Nombre de compteurs outliers détectés: {outlier_meters}")
+    if outlier_meters > 0:
+        logger.info(f"Compteurs outliers: {df_outliers['Meter No.'].unique().tolist()}")
+
+    # Éviter les compteurs dupliqués dans le calcul des compteurs normaux
+    all_anomaly_meters = set(df_anomalies['Meter No.'].unique()).union(
+        set(df_low_consumption['Meter No.'].unique()),
+        set(df_outliers['Meter No.'].unique())
+    )
+    normal_meters = total_meters - len(all_anomaly_meters)
+
+    # Compter les compteurs par motif dans df_outliers
+    high_outlier_count = 0
+    low_outlier_count = 0
+    high_outliers = []
+    low_outliers = []
+    if not df_outliers.empty:
+        # Compter les compteurs uniques par motif
+        low_outlier_meters = df_outliers[df_outliers['Motif'] == 'Consommation faible par rapport à la moyenne']['Meter No.'].unique()
+        high_outlier_meters = df_outliers[df_outliers['Motif'] == 'Consommation élevée par rapport à la moyenne']['Meter No.'].unique()
+        
+        low_outlier_count = len(low_outlier_meters)
+        high_outlier_count = len(high_outlier_meters)
+        low_outliers = low_outlier_meters.tolist()
+        high_outliers = high_outlier_meters.tolist()
+        
+        logger.info(f"Outliers basse consommation: {low_outlier_count} ({low_outliers})")
+        logger.info(f"Outliers haute consommation: {high_outlier_count} ({high_outliers})")
+    else:
+        logger.warning("Aucun outlier trouvé dans df_outliers")
+
+    visualization_data = {
+        "counts": {
+            "total_meters": total_meters,
+            "normal_meters": normal_meters,
+            "anomaly_meters": anomaly_meters,
+            "low_consumption_meters": low_consumption_meters,
+            "outlier_meters": outlier_meters,
+            "high_outlier_count": high_outlier_count,
+            "low_outlier_count": low_outlier_count
+        },
+        "month": results_cache.get("anomaly_month", "")
+    }
+
+    logger.info(f"Données de visualisation préparées: {visualization_data}")
+    return visualization_data
+
+def get_consumption_curves(meter_numbers, month_period):
+    if "anomaly_cleaned" not in results_cache or results_cache["anomaly_cleaned"].empty:
+        return None
+
+    df_cleaned = results_cache["anomaly_cleaned"]
+    
+    # Convertir month_period en Period pour correspondre à year_month
+    try:
+        month_period = pd.Period(month_period, freq='M')
+    except ValueError:
+        return None
+
+    df_month = df_cleaned[df_cleaned['year_month'] == month_period]
+    
+    if df_month.empty:
+        return None
+
+    meter_numbers_str = [str(m) for m in meter_numbers]
+    df_filtered = df_month[df_month['Meter No.'].isin(meter_numbers_str)]
+    
+    if df_filtered.empty:
+        return None
+
+    df_daily = df_filtered.groupby(['Meter No.', df_filtered['Data Time'].dt.date]).agg({
+        'Active power (+) total(kW)': 'sum'
+    }).reset_index()
+    df_daily.columns = ['Meter No.', 'date', 'sum_kW']
+    df_daily['date'] = pd.to_datetime(df_daily['date'])
+    
+    df_mean = df_daily.groupby('Meter No.')['sum_kW'].mean().reset_index()
+    df_mean.columns = ['Meter No.', 'mean_consumption']
+    
+    try:
+        df_mean['group'] = pd.qcut(
+            df_mean['mean_consumption'], q=3, labels=['faible', 'moyenne', 'forte']
+        )
+    except:
+        thresholds = [0, df_mean['mean_consumption'].quantile(0.33), 
+                     df_mean['mean_consumption'].quantile(0.66), df_mean['mean_consumption'].max()]
+        if thresholds[1] == thresholds[2]:
+            df_mean['group'] = 'moyenne'
+        else:
+            df_mean['group'] = pd.cut(
+                df_mean['mean_consumption'], 
+                bins=thresholds, 
+                labels=['faible', 'moyenne', 'forte'],
+                include_lowest=True
+            )
+    
+    df_daily = df_daily.merge(df_mean[['Meter No.', 'group']], on='Meter No.')
+    
+    curves_data = {}
+    for group in ['faible', 'moyenne', 'forte']:
+        group_meters = df_daily[df_daily['group'] == group]['Meter No.'].unique()
+        group_data = {}
+        
+        for meter in group_meters:
+            df_meter = df_daily[df_daily['Meter No.'] == meter].sort_values('date')
+            group_data[str(meter)] = {
+                'dates': df_meter['date'].dt.strftime('%Y-%m-%d').tolist(),
+                'values': df_meter['sum_kW'].tolist()
+            }
+        
+        curves_data[group] = group_data
+    
+    return curves_data
+
+@app.get("/anomaly-visualization-data")
+async def get_anomaly_visualization_data():
+    viz_data = prepare_visualization_data()
+    if not viz_data:
+        return {"error": "Aucune donnée disponible pour la visualisation"}
+    
+    return viz_data
+
+@app.get("/anomaly-consumption-curves")
+async def get_anomaly_consumption_curves():
+    if "anomaly_anomalies" not in results_cache or results_cache["anomaly_anomalies"].empty:
+        return {"error": "Aucune anomalie détectée"}
+    
+    anomaly_meters = results_cache["anomaly_anomalies"]['Meter No.'].unique().tolist()
+    month_period = results_cache.get("anomaly_month", "")
+    
+    curves_data = get_consumption_curves(anomaly_meters, month_period)
+    if not curves_data:
+        return {"error": "Impossible de générer les courbes de consommation"}
+    
+    return curves_data
